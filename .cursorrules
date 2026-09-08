@@ -1,0 +1,71 @@
+# ATEM FX — inteligência do projeto
+
+Documentos em inglês (`AGENTS.md`, `docs/*`) são a constituição.
+Memory-bank em PT-BR é memória de trabalho entre sessões. README em PT-BR é
+onboarding, **não spec**. `docs/VISION.md` é o ensaio original — não use a
+árvore nem o stack dele como mapa do repo.
+
+Quando a tarefa contradiz `AGENTS.md` / `docs/ARCHITECTURE.md`, os documentos
+vencem. Levante o conflito.
+
+## Idioma dos artefatos
+
+- `docs/`, `AGENTS.md`: inglês
+- `memory-bank/`, `README.md`: PT-BR
+- Comentários de código: inglês (já é o padrão)
+
+## Milestone
+
+M0 fechado. Não implemente DeckLink, ATEM, MIDI, áudio, presets, grafo DAG,
+efeito de feedback, gravação, streaming, layers ou blend antes do milestone
+em `docs/ROADMAP.md`.
+
+`TargetPool::persistent()`, `EffectRegistry` e `ParameterSet` já existem.
+Isso não é M2/M3 feitos.
+
+## Verificação
+
+Toda mudança de runtime:
+
+```bash
+./build/bin/atem_fx --headless --frames 200
+```
+
+Sem display, sem hardware. Obrigatório em macOS com GPU. Sandbox sem Metal
+não substitui esse gate.
+
+## Efeitos
+
+Custo completo de um efeito novo: um HLSL, um MSL, um `.cpp`, uma linha em
+`BuiltinEffects.cpp`. Os dois shaders têm que produzir a mesma imagem.
+`EffectConstants` muda em três arquivos. Sem `if (rgbSplit)` no pipeline.
+UI genérica; painel custom é cheiro.
+
+## RHI
+
+Não alargue `src/gpu/Rhi.h` de passagem. Um primitivo: fullscreen pass.
+Não adicione terceiro backend.
+
+## Hot path
+
+Sem alloc, lock ou log no per-frame em steady state. Sem processar imagem
+cara na CPU. Sem bloquear thread de vídeo com UI, rede ou disco.
+`readback` só em dump/diagnóstico.
+
+## Erros
+
+Não engolir. Log + status. Sem exceção atravessando módulo no caminho de
+vídeo. Integração de hardware com log diagnóstico.
+
+## Código
+
+Encaixar no que existe. `atemfx::`, `unique_ptr` dono, ponteiro empréstimo.
+Não redesenhar módulo alheio na feature isolada. Não puxar dependência sem
+justificar em `docs/`.
+
+## UI
+
+Nome na interface: `CamVJ` (caixa mista). Tema em `src/ui/Theme.*`.
+Tungsten (`#FF9B3D`) só para o sujeito travado e o tally LIVE. SOURCE é
+Split Cyan, PROGRAM é Split Magenta. Fundo Studio Black. Sem gradiente,
+sombra ou brilho. Layout fixo, não dockable.

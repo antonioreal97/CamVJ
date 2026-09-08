@@ -1,0 +1,9 @@
+build/
+build-decklink/
+out/
+.vs/
+.vscode/
+*.user
+CMakeSettings.json
+CMakeUserPresets.json
+.cursor 
