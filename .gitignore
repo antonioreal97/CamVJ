@@ -1,5 +1,6 @@
 build/
 build-decklink/
+dist/
 out/
 .vs/
 .vscode/

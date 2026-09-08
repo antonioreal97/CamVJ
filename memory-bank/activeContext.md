@@ -6,7 +6,13 @@
 discovery foi implementado e aguarda validação de build e placa Windows.
 Captura, playback, filas, timing e split de thread ainda não existem.
 
-Pedido atual (2026-09-08): ícone do app no Dock/Finder — `assets/macos/CamVJ.icns`
+Pedido atual (2026-09-08): pacotes de distribuição unsigned —
+`scripts/package_macos.sh` → `dist/CamVJ-<ver>-macos.dmg` (CamVJ.app +
+Applications); `scripts/package_windows.ps1` → ZIP com CamVJ.exe + shaders.
+Bundle id / binário macOS inalterados. Sem codesign/notarização nesta etapa.
+Validação Windows do script pendente (precisa de máquina VS).
+
+Pedido anterior (2026-09-08): ícone do app no Dock/Finder — `assets/macos/CamVJ.icns`
 gerado de `assets/files/camvj-icon-1024.png`, `CFBundleIconFile` no plist e
 cópia para `Contents/Resources` via CMake. Bundle id e nome do binário
 inalterados (`fx.atem.engine` / `atem_fx`).

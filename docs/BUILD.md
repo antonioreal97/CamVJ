@@ -351,6 +351,57 @@ intended check; a machine without a GPU (some sandboxes) cannot run it.
 
 ---
 
+## Distribution packages
+
+Unsigned packages for handing builds to other machines. There is no Apple
+Developer ID / notarization and no Windows Authenticode yet — recipients will
+see Gatekeeper or SmartScreen warnings. Code signing is a later step, not part
+of these scripts.
+
+DeckLink stays **off** in the default package (no SDK bundled). Brand fonts are
+optional and fall back to system faces.
+
+### macOS — DMG
+
+Requirements for recipients: macOS 11+, Metal GPU.
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j8
+./scripts/package_macos.sh
+```
+
+Produces `dist/CamVJ-<version>-macos.dmg` with `CamVJ.app` and an Applications
+symlink (drag-to-install). Inside the bundle the executable remains `atem_fx`
+and the bundle id remains `fx.atem.engine` so an existing camera TCC grant is
+not invalidated. Shaders live in `Contents/Resources/shaders`.
+
+First open on another Mac: right-click the app → **Open** (Gatekeeper). Grant
+camera access when prompted, or later under **System Settings › Privacy &
+Security › Camera**.
+
+Options: `-B BUILD_DIR`, `-v VERSION`, `--skip-smoke`.
+
+### Windows — ZIP
+
+Requirements for recipients: Windows 10 1703+, Direct3D 11 feature level 11_0.
+Build and package **on Windows** (Visual Studio 2022 x64); the ZIP cannot be
+produced from a macOS host.
+
+```bat
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release
+powershell -ExecutionPolicy Bypass -File .\scripts\package_windows.ps1
+```
+
+Produces `dist/CamVJ-<version>-windows-x64.zip` containing `CamVJ/` with
+`CamVJ.exe` (renamed from `atem_fx.exe`) and `shaders/` beside it. Unzip
+anywhere and run `CamVJ.exe`. SmartScreen may warn on first launch — choose
+**More info** → **Run anyway** when you trust the build.
+
+Options: `-BuildDir`, `-Version`, `-SkipSmoke`.
+
+---
+
 ## Linux
 
 Not supported. It would need implementations of `src/gpu/Rhi.h` and
