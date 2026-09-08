@@ -43,32 +43,35 @@ cmake --build build --config Release
 build\bin\Release\atem_fx.exe
 ```
 
-## Baixar (macOS e Windows)
+## Baixar
 
-Há **duas builds** — escolha a do seu sistema. Os arquivos saem nos
-[Releases do GitHub](https://github.com/antonioreal97/CamVJ/releases)
+Por enquanto só há build **macOS**. O pacote Windows (`.zip`) vem depois.
+Arquivos nos [Releases do GitHub](https://github.com/antonioreal97/CamVJ/releases)
 (pacotes **não assinados** nesta etapa).
 
-| Sistema | Arquivo | O que fazer |
-| ------- | ------- | ----------- |
-| **macOS** (Apple Silicon ou Intel, 11+) | `CamVJ-<versão>-macos.dmg` | Abrir o DMG → arrastar **CamVJ** para **Applications** → abrir o app |
-| **Windows** (x64, 10 1703+) | `CamVJ-<versão>-windows-x64.zip` | Extrair a pasta → abrir `CamVJ/CamVJ.exe` |
+| Sistema | Status | Arquivo | O que fazer |
+| ------- | ------ | ------- | ----------- |
+| **macOS** (Apple Silicon ou Intel, 11+) | Disponível | `CamVJ-<versão>-macos.dmg` | Abrir o DMG → arrastar **CamVJ** para **Applications** → abrir o app |
+| **Windows** (x64, 10 1703+) | Em breve | `CamVJ-<versão>-windows-x64.zip` | Extrair a pasta → abrir `CamVJ/CamVJ.exe` |
 
-Exemplo na versão `0.1.0`: `CamVJ-0.1.0-macos.dmg` e
-`CamVJ-0.1.0-windows-x64.zip`.
+Exemplo atual: `CamVJ-1.0.0-macos.dmg`.
 
 **macOS.** Na primeira abertura, se o Gatekeeper bloquear: clique direito no
 app → **Abrir**. Autorize a câmera quando pedido (ou em **Ajustes do Sistema ›
 Privacidade e Segurança › Câmera**).
 
-**Windows.** Se o SmartScreen avisar: **Mais informações** → **Executar
-assim mesmo** (só se você confiar na build). A pasta `shaders/` precisa
-ficar ao lado do `CamVJ.exe` — não mova só o executável.
+Quando o ZIP Windows existir: se o SmartScreen avisar, use **Mais informações**
+→ **Executar assim mesmo** (só se você confiar na build). A pasta `shaders/`
+precisa ficar ao lado do `CamVJ.exe`.
 
-Quem gera os pacotes a partir do código: após o build Release,
-`./scripts/package_macos.sh` (no Mac) ou
-`powershell -ExecutionPolicy Bypass -File .\scripts\package_windows.ps1`
-(no Windows). Detalhes em
+Quem gera o DMG a partir do código (Mac, após build Release):
+
+```bash
+./scripts/package_macos.sh -v 1.0.0
+```
+
+O script Windows (`scripts/package_windows.ps1`) já existe; falta só rodar o
+build Release numa máquina com Visual Studio. Detalhes em
 [docs/BUILD.md](docs/BUILD.md#distribution-packages).
 
 ## O que o M0 faz
