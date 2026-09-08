@@ -6,7 +6,12 @@
 discovery foi implementado e aguarda validação de build e placa Windows.
 Captura, playback, filas, timing e split de thread ainda não existem.
 
-Pedido atual (2026-09-08): sidebar — SOURCE / OUTPUT / EFFECTS / PARAMETERS
+Pedido atual (2026-09-08): ícone do app no Dock/Finder — `assets/macos/CamVJ.icns`
+gerado de `assets/files/camvj-icon-1024.png`, `CFBundleIconFile` no plist e
+cópia para `Contents/Resources` via CMake. Bundle id e nome do binário
+inalterados (`fx.atem.engine` / `atem_fx`).
+
+Pedido anterior (2026-09-08): sidebar — SOURCE / OUTPUT / EFFECTS / PARAMETERS
 dobram ao clicar o título. Estado de sessão em `theme::panelOpen`; SOURCE e
 OUTPUT encolhem para a altura do label para o painel de efeitos herdar o
 espaço. Sem persistência (imgui.ini continua desligado). Sem mudança de

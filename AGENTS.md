@@ -152,6 +152,7 @@ Do not create `main.cpp` with 5000 lines. Follow the tree in
 - Tracking exists to put a walking presenter on LED walls: PROGRAM is the picture for the panel and must keep the subject centered, with a visible crop preview.
 - LED walls are 16:9 landscape or 9:16 portrait. Keep the engine canvas at 1920×1080 and letterbox 9:16 rather than switching project resolution.
 - Auto Frame sliders must visibly retarget the crop; the dead zone is for detector jitter, not operator changes. Landscape 16:9 must still follow (punch in) so PROGRAM is not identical to SOURCE.
+- Visible product name is `CamVJ` (mixed case). Theme lives in `src/ui/Theme.*`. Tungsten (`#FF9B3D`) only for the locked subject and the LIVE tally. SOURCE is Split Cyan, PROGRAM is Split Magenta. Studio Black background. No gradient, shadow, or glow. Fixed layout, not dockable.
 
 ## Learned Workspace Facts
 
@@ -164,3 +165,5 @@ Do not create `main.cpp` with 5000 lines. Follow the tree in
 - 9:16 output is a centred letterbox strip on the 1920×1080 canvas; the strip stays fixed so Resolume can crop a static mapping.
 - Only camera input feeds the tracker. Test Pattern has no CPU BGRA and reports `no frames from this input`.
 - Framing lives in `src/tracking/framing.cpp` with CTest in `tests/framing_test.cpp`. Auto Frame packs the source crop plus output window into the shader without widening `EffectConstants`.
+- Development camera is a Sony ILME-FX30 in USB Streaming (UVC 1080p30). macOS discovery must include `ExternalUnknown`; session presets often claim 1080p then deliver no frames — pick 1920×1080 from the device format list. Camera hotplug is AVFoundation notifications polled between frames, not DeckLink.
+- The binary stays `atem_fx` and the bundle id `fx.atem.engine` so macOS camera permission is not invalidated. Brand assets and rules live in `assets/files/IDENTIDADE.md`.

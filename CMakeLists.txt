@@ -259,12 +259,22 @@ else()
     # An application bundle, not a bare executable. macOS refuses camera access
     # to a binary with no Info.plist carrying NSCameraUsageDescription — the
     # bundle is what makes the permission prompt possible at all.
+    #
+    # Dock / Finder icon: CamVJ.icns is built from assets/files/camvj-icon-1024.png
+    # (see assets/files/IDENTIDADE.md). Keep the binary name and bundle id so
+    # the existing camera TCC grant stays valid.
+    set(ATEMFX_MAC_ICON "${CMAKE_CURRENT_SOURCE_DIR}/assets/macos/CamVJ.icns")
+    set_source_files_properties("${ATEMFX_MAC_ICON}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION "Resources")
+    target_sources(atem_fx PRIVATE "${ATEMFX_MAC_ICON}")
+
     set_target_properties(atem_fx PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_BUNDLE_NAME "CamVJ"
         MACOSX_BUNDLE_GUI_IDENTIFIER "fx.atem.engine"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_ICON_FILE "CamVJ.icns"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/MacOSXBundleInfo.plist.in")
 
     target_compile_options(atem_fx PRIVATE -Wall -Wextra)
