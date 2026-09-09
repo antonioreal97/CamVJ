@@ -1,8 +1,9 @@
-# ATEM FX — Architecture
+# CamVJ — Architecture
 
-**Status: M0 implemented; M1 in progress.** FX-010 adds a standalone DeckLink
-discovery command, with Windows build and hardware validation still pending.
-Capture, playback and ATEM are not implemented. The M1 threading split and
+**Status: M0 implemented, plus camera inputs, subject tracking, display
+output, PROGRAM safety and the macOS virtual camera; M1 in progress.** FX-010
+adds a standalone DeckLink discovery command, with Windows build and hardware
+validation still pending. SDI capture, playback and ATEM are not implemented. The M1 threading split and
 the M4 control plane remain design — see [VIDEO_PIPELINE.md](VIDEO_PIPELINE.md) and
 [ATEM_INTEGRATION.md](ATEM_INTEGRATION.md).
 
@@ -55,10 +56,18 @@ a GPU-generated test source, on a single thread, driven by the window loop
 ```text
         ┌──────────────── UI Thread (Win32 / AppKit + ImGui) ──────────────┐
         │                                                                  │
-        │   TestPatternSource ──► EffectChain ──► Preview (ImGui) / PPM    │
-        │        (GPU)              (GPU)              (GPU)               │
+        │   VideoSource ──► EffectChain ──► ProgramOutput ──┬─► Preview    │
+        │   (test pattern     (GPU)          (FX / Clean /  │   (ImGui)    │
+        │    or camera)                       Freeze/Black) ├─► OutputSurface
+        │                                                   ├─► virtual cam │
+        │                                                   └─► PPM dump    │
         └──────────────────────────────────────────────────────────────────┘
 ```
+
+`ProgramOutput` is the last gate before anything leaves: preview, display and
+webcam all read the picture it published, so what the operator sees on PROGRAM
+is what every consumer gets. Its states and the input-loss policy are in
+[RUNTIME.md](RUNTIME.md#program-safety).
 
 M0 deliberately runs single-threaded: there is no capture clock to decouple
 from yet. The seam where the processing thread will be split off is
@@ -118,15 +127,19 @@ src/
 ├── gpu/              The rendering interface (Rhi.h) and its implementations.
 │   ├── d3d11/          Direct3D 11 backend
 │   └── metal/          Metal backend
-├── video/            Video inputs behind VideoSource, plus FrameTiming.
-│   ├── mac/            AVFoundation camera capture
+├── video/            Video inputs behind VideoSource, plus FrameTiming,
+│   │                 the PROGRAM gate (program_output), input-loss policy
+│   │                 (source_health) and PROGRAM as a webcam
+│   │                 (virtual_camera; stub off macOS).
+│   ├── mac/            AVFoundation camera capture, CoreMediaIO sink client
 │   └── win32/          Media Foundation camera capture
 ├── effects/          Effect abstraction, registry, chain, built-in effects.
 │                     Per-parameter loop clocks and scalar evaluation.
 │                     Depends on gpu/Rhi.h, never on a backend.
-├── tracking/         Subject detection and the framing controller. Control
-│   └── mac/          plane: no GPU, no readback, its own thread. Windows has
-│                     no detector yet (docs/TRACKING.md).
+├── tracking/         Subject detection, the framing controller and the
+│   └── mac/          source-to-canvas mapping. Control plane: no GPU, no
+│                     readback, its own thread. Windows has no detector yet
+│                     (docs/TRACKING.md).
 └── ui/               ImGui panels, shared; ui/backend/ holds the one file per
                       platform that ImGui's own backends force us to split.
 ```
@@ -224,7 +237,8 @@ and no virtual call in the inner loop beyond the effect itself.
 Shaders are written twice, once per language, and live in `shaders/hlsl/` and
 `shaders/metal/`. They must produce the same image. Transpiling from a single
 source (DXC to SPIR-V to MSL) would remove the duplication and add a toolchain;
-with six shaders that trade is not worth making yet. Revisit it at thirty.
+with fourteen shaders that trade is not worth making yet. Revisit it at thirty.
+`--check-shaders` compiles every one of them and reports the count.
 
 A change to `EffectConstants` changes three files: the C++ struct in
 `src/gpu/EffectConstants.h`, `shaders/hlsl/common.hlsli` and
@@ -361,9 +375,12 @@ place, and it is the check every change has to pass.
 ./build/bin/atem_fx --headless --frames 200
 ```
 
-The portable parameter automation test additionally runs through CTest with
-`BUILD_TESTING=ON`, without a GPU or third-party test framework. It checks the
-scalar loop contract; it does not replace the headless rendering gate.
+Five portable C++ tests additionally run through CTest with `BUILD_TESTING=ON`,
+without a GPU or third-party test framework: `parameter_automation`, `framing`,
+`source_mapping`, `source_health` and `program_output`. They check scalar
+contracts — loop evaluation, the framing controller, source-to-canvas mapping,
+the input-loss policy and the PROGRAM state machine. They do not replace the
+headless rendering gate.
 
 ---
 
@@ -395,11 +412,18 @@ recorded here so it is removed deliberately in M1, not discovered by accident.
 App
  ├── Window              (null when headless)
  ├── GraphicsDevice      (MetalDevice or D3D11Device)
- ├── TestPatternSource
+ ├── VideoSource         (TestPatternSource or CameraSource)
+ ├── OutputWindow + OutputSurface   (null until a display is picked)
+ ├── VirtualCameraOutput (null until PROGRAM is sent to a webcam)
+ ├── Tracker             (null where the platform has no detector)
  ├── EffectChain
+ ├── ProgramOutput
  ├── FrameTiming
  └── UiLayer             (idle when headless)
 ```
+
+The exact member list and destruction order are in
+[RUNTIME.md](RUNTIME.md#ownership).
 
 `std::unique_ptr` for ownership, raw pointers or references for borrowing.
 `EffectContext` and `UiFrameState` are per-frame snapshots of borrowed

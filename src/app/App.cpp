@@ -9,6 +9,7 @@
 #include "effects/BuiltinEffects.h"
 #include "effects/EffectRegistry.h"
 #include "gpu/Backend.h"
+#include "tracking/source_mapping.h"
 
 namespace atemfx {
 
@@ -52,6 +53,12 @@ bool writePpm(const std::string& path, const std::vector<uint8_t>& rgba, uint32_
 bool App::initialize(const AppOptions& options)
 {
     options_ = options;
+    programMode_ = options.programMode;
+
+    // No dissolve into the state the show starts in: there is no previous
+    // picture to come from, and --program black exists precisely so the first
+    // frame is already safe.
+    programTransition_.snapTo(programMode_);
 
     if (!options_.headless)
     {
@@ -94,7 +101,7 @@ bool App::initialize(const AppOptions& options)
 
     startTracking();
 
-    int requested = 0;
+    int requested = options_.sourceId.empty() ? 0 : -1;
     if (!options_.sourceId.empty())
     {
         for (int i = 0; i < static_cast<int>(availableSources_.size()); ++i)
@@ -105,21 +112,39 @@ bool App::initialize(const AppOptions& options)
                 break;
             }
         }
-        if (availableSources_[requested].id != options_.sourceId)
+        if (requested < 0)
         {
-            ATEMFX_LOG_WARN("Unknown input '%s'; falling back to the test pattern",
+            status_ = "Input unavailable: " + options_.sourceId + ". Select an input to recover.";
+            sourceDisconnected_ = true;
+            ATEMFX_LOG_WARN("Unknown input '%s'; holding black until an input is selected",
                             options_.sourceId.c_str());
         }
     }
 
-    if (!selectSource(requested))
+    if (requested >= 0 && !selectSource(requested))
     {
         return false;
+    }
+
+    if (source_ && options_.testPattern >= 0)
+    {
+        if (Parameter* pattern = source_->parameters().find("pattern"))
+        {
+            pattern->setInt(options_.testPattern);
+        }
     }
 
     registerBuiltinEffects(EffectRegistry::instance());
     if (!createDefaultChain())
     {
+        return false;
+    }
+    chain_.prepare(effectContext_);
+
+    std::string programError;
+    if (!programOutput_.initialize(effectContext_, programError))
+    {
+        ATEMFX_LOG_ERROR("Program output: %s", programError.c_str());
         return false;
     }
 
@@ -173,6 +198,24 @@ bool App::initialize(const AppOptions& options)
         }
     }
 
+    webcamSupported_ = virtualCameraSupported();
+    if (options_.webcam)
+    {
+        if (webcamSupported_)
+        {
+            // Started from the frame loop with every other device change, so
+            // the command line takes exactly the path the operator's button
+            // takes, including how it reports failing.
+            requestWebcamStart_ = true;
+        }
+        else
+        {
+            webcamStatus_ = "Webcam output is not supported on this platform";
+            webcamFailed_ = true;
+            ATEMFX_LOG_WARN("%s", webcamStatus_.c_str());
+        }
+    }
+
     timing_.reset();
 
     ATEMFX_LOG_INFO("CamVJ ready: %s backend, processing %ux%u",
@@ -202,7 +245,9 @@ bool App::createDefaultChain()
         {"fm_raster", false},
         {"subpixel", false},
         {"shutter", false},
+        {"frame_delay", false},
         {"mirror", false},
+        {"vhs", false},
         {"crt", false},
     };
 
@@ -321,17 +366,14 @@ bool App::selectSource(int index)
         status_ = descriptor.displayName + ": " + (error.empty() ? "could not open" : error);
         ATEMFX_LOG_ERROR("%s", status_.c_str());
 
-        // A camera that will not open must not take the show down. Keep the
-        // input that is already running; only fall back when there is none.
+        // Keep a working input on immediate failure. Before the first frame,
+        // PROGRAM stays black; test patterns require an explicit selection.
         if (source_)
         {
             return true;
         }
-        if (index != 0)
-        {
-            return selectSource(0);
-        }
-        return false;
+        currentSource_ = index;
+        return true;
     }
 
     if (source_)
@@ -341,7 +383,17 @@ bool App::selectSource(int index)
 
     source_        = std::move(candidate);
     currentSource_ = index;
+    sourceDisconnected_ = false;
     status_        = "Input: " + descriptor.displayName;
+
+    // A lock is a box on this sensor. It is meaningless on the next one.
+    if (tracker_)
+    {
+        tracker_->unlock();
+        tracker_->setEnumerateCandidates(false);
+    }
+    pickSubjectMode_       = false;
+    requestedLock_.pending = false;
 
     ATEMFX_LOG_INFO("Input selected: %s (%s)",
                     descriptor.displayName.c_str(),
@@ -372,15 +424,19 @@ void App::startTracking()
 
 void App::rescanDevices()
 {
-    const std::string currentId =
+    // No input running means no input selected. Falling back to the test
+    // pattern id here would re-select it in the panel while PROGRAM is holding
+    // black, and the one thing the operator must be able to trust is what the
+    // panel says is live.
+    const std::string currentId = source_ ? source_->descriptor().id :
         (currentSource_ >= 0 && currentSource_ < static_cast<int>(availableSources_.size()))
             ? availableSources_[currentSource_].id
-            : std::string(kTestPatternSourceId);
+            : std::string();
 
     const std::vector<VideoSourceDescriptor> previous = availableSources_;
     availableSources_                                 = enumerateVideoSources();
 
-    currentSource_  = 0;
+    currentSource_  = -1;
     bool stillThere = false;
     for (int i = 0; i < static_cast<int>(availableSources_.size()); ++i)
     {
@@ -435,10 +491,21 @@ void App::rescanDevices()
         return;
     }
 
-    if (!stillThere)
+    if (!stillThere && source_)
     {
-        ATEMFX_LOG_WARN("Input disappeared; falling back to the test pattern");
-        selectSource(0);
+        sourceDisconnected_ = true;
+        status_ = "Input disconnected. PROGRAM holds; select an input, then FX or Clean to resume.";
+        ATEMFX_LOG_WARN("Input disappeared; holding PROGRAM until operator recovery");
+        return;
+    }
+
+    if (sourceDisconnected_)
+    {
+        // A camera that comes back does not take itself live: recovery is an
+        // operator action, so the guidance has to survive every rescan.
+        status_ = appeared.empty()
+            ? "No input running. PROGRAM holds; select an input, then FX or Clean to resume."
+            : "Input available again. Select it, then FX or Clean to resume.";
         return;
     }
 
@@ -573,6 +640,73 @@ void App::serviceOutput()
     }
 }
 
+// Camera transport is opened and closed here, between frames, for the same
+// reason displays are: talking to a system extension is not a per-frame
+// operation, and a webcam that fails to start must never cost a frame.
+void App::serviceWebcam()
+{
+    if (webcam_)
+    {
+        webcamStats_ = webcam_->stats();
+
+        if (webcamStats_.state == VirtualCameraState::Failed)
+        {
+            webcamStatus_ = webcam_->error();
+            webcamFailed_ = true;
+            ATEMFX_LOG_WARN("Webcam: %s", webcamStatus_.c_str());
+            webcam_.reset();
+            webcamStats_ = {VirtualCameraState::Stopped, 0, 0};
+        }
+        else if (webcamStats_.state == VirtualCameraState::Stopped)
+        {
+            // The worker has released the stream, so the output can go. Not
+            // before: a frame may still be on its way to it.
+            webcam_.reset();
+            webcamStats_ = {VirtualCameraState::Stopped, 0, 0};
+            webcamStatus_ = "Webcam stopped";
+        }
+    }
+
+    if (requestWebcamStop_)
+    {
+        requestWebcamStop_ = false;
+        if (webcam_)
+        {
+            webcamStatus_ = "Webcam stopping";
+            webcam_->requestStop();
+        }
+    }
+
+    if (requestWebcamStart_)
+    {
+        requestWebcamStart_ = false;
+        if (!webcam_)
+        {
+            std::string error;
+            webcam_ = createVirtualCameraOutput(*device_, error);
+            if (webcam_)
+            {
+                webcamStats_  = {VirtualCameraState::Starting, 0, 0};
+                webcamStatus_ = "Webcam starting";
+            }
+            else
+            {
+                webcamStatus_ = error;
+                webcamFailed_ = true;
+                ATEMFX_LOG_WARN("Webcam: %s", error.c_str());
+            }
+        }
+    }
+}
+
+// Non-zero only when the run was asked for a webcam on the command line and
+// never got one. An operator who started it from the panel gets the message
+// in the panel; a script that passed --webcam gets an exit status.
+int App::webcamResult() const
+{
+    return (options_.webcam && webcamFailed_) ? 1 : 0;
+}
+
 void App::updateEffectContext()
 {
     effectContext_.shaders    = &device_->shaders();
@@ -587,21 +721,14 @@ void App::updateEffectContext()
     // The tracker looked at the captured image; the chain works on the canvas.
     // Fitting and mirroring happen between the two, so the observation is
     // mapped here rather than in the effect, which has no idea what the input
-    // is. An SDI input at project resolution maps one to one.
+    // is. An SDI input at project resolution maps one to one. The same helper
+    // maps a Pick click the other way, so the two cannot drift apart.
     TrackingSnapshot tracking;
     if (tracker_ && tracker_->latest(tracking) && source_)
     {
         const SourceMapping mapping = source_->mapping();
-
-        tracking.centerX = (tracking.centerX - 0.5f) / mapping.scaleX + 0.5f;
-        tracking.centerY = (tracking.centerY - 0.5f) / mapping.scaleY + 0.5f;
-        tracking.width /= mapping.scaleX;
-        tracking.height /= mapping.scaleY;
-
-        if (mapping.mirrored)
-        {
-            tracking.centerX = 1.0f - tracking.centerX;
-        }
+        mapSourceToCanvas(mapping, tracking.centerX, tracking.centerY, tracking.width,
+                          tracking.height);
 
         // A subject fitted outside the canvas is not on the wall, so it is not
         // a subject. Letterbox bars are the only way this happens.
@@ -643,7 +770,7 @@ int App::run()
         {
             return 1;
         }
-        return 0;
+        return webcamResult();
     }
 
     window_->runFrameLoop([this] {
@@ -657,7 +784,7 @@ int App::run()
         }
     });
 
-    return 0;
+    return webcamResult();
 }
 
 void App::renderFrame()
@@ -680,6 +807,28 @@ void App::renderFrame()
         return;
     }
 
+    if (requestedLock_.pending)
+    {
+        requestedLock_.pending = false;
+        pickSubjectMode_       = false;
+        if (tracker_ && source_)
+        {
+            float centerX = requestedLock_.centerX;
+            float centerY = requestedLock_.centerY;
+            float width   = requestedLock_.width;
+            float height  = requestedLock_.height;
+            mapCanvasToSource(source_->mapping(), centerX, centerY, width, height);
+            tracker_->lock(centerX, centerY, width, height);
+        }
+    }
+
+    if (tracker_)
+    {
+        TrackingSnapshot latest;
+        const bool       waiting = !tracker_->latest(latest) || !latest.locked;
+        tracker_->setEnumerateCandidates(pickSubjectMode_ || waiting);
+    }
+
     updateEffectContext();
 
     // Device work happens between frames, never inside the measured region:
@@ -694,15 +843,13 @@ void App::renderFrame()
     {
         const int requested = requestedSource_;
         requestedSource_    = -1;
-        if (requested != currentSource_)
-        {
-            selectSource(requested);
-        }
+        selectSource(requested);
     }
 
     serviceOutput();
+    serviceWebcam();
 
-    if (requestShaderReload_)
+    if (requestShaderReload_ && !operationLocked_)
     {
         requestShaderReload_ = false;
         std::string error;
@@ -714,12 +861,44 @@ void App::renderFrame()
     device_->beginProcessing();
 
     GpuTexture* sourceFrame = source_ ? source_->render(effectContext_) : nullptr;
-    GpuTexture* frame       = sourceFrame;
-    if (frame)
+    sourceHealth_ = source_ ? source_->health() : SourceHealth{};
+    if (!source_)
     {
-        frame = &chain_.process(effectContext_, *frame);
+        sourceHealth_.signal = SourceSignal::Waiting;
     }
+    const bool inputHealthy = !sourceDisconnected_ &&
+        (sourceHealth_.signal == SourceSignal::Generated || sourceHealth_.signal == SourceSignal::Live);
+    // Read before ProgramOutput can latch Freeze on input loss: the dissolve
+    // follows the operator's mode, not the fault the output is covering.
+    const float effectMix = programTransition_.update(programMode_, effectContext_.deltaTime);
+
+    GpuTexture* frame = nullptr;
+    if (sourceFrame && inputHealthy)
+    {
+        frame = &chain_.process(effectContext_, *sourceFrame, effectMix, source_->bypassEffects());
+    }
+
+    // The preview bus, read before program policy can hold this image or
+    // replace it with black, and before ProgramOutput restores the framing
+    // that belongs to the held frame rather than to this one. Under Freeze the
+    // chain is still working on the next shot; this is the only place that
+    // picture can be seen.
+    GpuTexture* chainFrame          = frame;
+    const FramingRect chainFraming  = effectContext_.framing;
+    const bool  chainFramingActive  = effectContext_.framingActive;
+    const float chainAspect         = effectContext_.outputAspect;
+
+    frame = programOutput_.render(effectContext_, frame, inputHealthy, programMode_);
     lastOutput_ = frame;
+
+    // The webcam sees PROGRAM, which is the point: Clean, Freeze and Black
+    // reach a call the same way they reach the wall. It only offers the frame
+    // and returns; a call application that stops reading costs dropped frames
+    // in the stats, never a stalled chain.
+    if (webcam_ && frame)
+    {
+        webcam_->submit(*frame);
+    }
 
     device_->endProcessing();
 
@@ -749,13 +928,32 @@ void App::renderFrame()
         state.requestOutputClose  = &requestOutputClose_;
         state.requestDisplayRescan = &requestDisplayRescan_;
         state.outputActive        = outputSurface_ != nullptr;
+        state.sourceHealth        = sourceHealth_;
+        state.sourceDisconnected  = sourceDisconnected_;
+        state.programMode         = &programMode_;
+        state.programMix          = effectMix;
+        // Held mid-ramp behind Freeze or Black is not a dissolve in progress,
+        // and a percentage that never moves reads as a hung machine.
+        state.programMixing       = programTransition_.active() &&
+            (programMode_ == ProgramMode::Effects || programMode_ == ProgramMode::Clean);
+        state.operationLocked     = &operationLocked_;
+        state.inputHealthy        = inputHealthy;
         state.outputWidth         = outputSurface_ ? outputSurface_->width() : 0;
         state.outputHeight        = outputSurface_ ? outputSurface_->height() : 0;
         state.outputStatus        = &outputStatus_;
+        state.webcamSupported     = webcamSupported_;
+        state.webcamStats         = webcamStats_;
+        state.webcamStatus        = &webcamStatus_;
+        state.requestWebcamStart  = &requestWebcamStart_;
+        state.requestWebcamStop   = &requestWebcamStop_;
         state.timing              = &timing_;
         state.effectContext       = &effectContext_;
         state.sourcePreview       = sourceFrame;
         state.preview             = frame;
+        state.chainPreview        = chainFrame;
+        state.chainFraming        = chainFraming;
+        state.chainFramingActive  = chainFramingActive;
+        state.chainAspect         = chainAspect;
         state.processingWidth     = kProcessingWidth;
         state.processingHeight    = kProcessingHeight;
         state.gpuMilliseconds     = device_->lastGpuMilliseconds();
@@ -767,6 +965,40 @@ void App::renderFrame()
         state.status              = &status_;
         trackingStatus_           = tracker_ ? tracker_->status() : trackingStatus_;
         state.trackingStatus      = &trackingStatus_;
+        state.trackingAvailable   = tracker_ != nullptr;
+        state.pickSubjectMode     = &pickSubjectMode_;
+        state.requestedLock       = &requestedLock_;
+
+        trackingCandidates_.clear();
+        const bool showCandidates =
+            pickSubjectMode_ || !effectContext_.tracking.locked;
+        if (tracker_ && showCandidates)
+        {
+            tracker_->candidates(trackingCandidates_);
+            if (source_)
+            {
+                const SourceMapping mapping = source_->mapping();
+                std::size_t         write   = 0;
+                for (std::size_t i = 0; i < trackingCandidates_.size(); ++i)
+                {
+                    TrackingCandidate mapped = trackingCandidates_[i];
+                    mapSourceToCanvas(mapping, mapped.centerX, mapped.centerY, mapped.width,
+                                      mapped.height);
+                    if (mapped.centerX < 0.0f || mapped.centerX > 1.0f ||
+                        mapped.centerY < 0.0f || mapped.centerY > 1.0f)
+                    {
+                        continue;
+                    }
+                    trackingCandidates_[write++] = mapped;
+                }
+                trackingCandidates_.resize(write);
+            }
+            else
+            {
+                trackingCandidates_.clear();
+            }
+        }
+        state.trackingCandidates = &trackingCandidates_;
 
         ui_.beginFrame(*window_, *device_);
         ui_.draw(state);
@@ -805,6 +1037,17 @@ void App::reportTimings() const
         ATEMFX_LOG_INFO("gpu process  %.3f ms", device_->lastGpuMilliseconds());
     }
     ATEMFX_LOG_INFO("effects      %zu enabled of %zu", chain_.enabledCount(), chain_.size());
+    if (options_.webcam)
+    {
+        // The one number that says whether a call actually received the show.
+        // Dropped frames are the only symptom that path produces.
+        const VirtualCameraStats webcam = webcam_ ? webcam_->stats() : webcamStats_;
+        ATEMFX_LOG_INFO("webcam       %llu sent, %llu dropped%s%s",
+                        static_cast<unsigned long long>(webcam.sent),
+                        static_cast<unsigned long long>(webcam.skipped),
+                        webcamStatus_.empty() ? "" : "  ",
+                        webcamStatus_.c_str());
+    }
     ATEMFX_LOG_INFO("budget       16.68 ms per frame at 59.94 fps");
     ATEMFX_LOG_INFO("--------------------------------------------------");
 }
@@ -836,6 +1079,7 @@ bool App::dumpLastFrame(const std::string& path)
 void App::shutdown()
 {
     ui_.shutdown();
+    programOutput_.shutdown();
     chain_.shutdown();
 
     if (source_)
@@ -854,6 +1098,11 @@ void App::shutdown()
 
     // Before the device: the surface holds a layer and a pipeline built by it.
     closeOutput();
+
+    // Same reason, plus one of its own: the destructor waits for the worker to
+    // release the camera extension, so the device outlives the last frame the
+    // GPU was still copying into it.
+    webcam_.reset();
 
     if (device_)
     {

@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cmath>
 #include <condition_variable>
 #include <cstring>
 #include <mutex>
@@ -14,6 +13,7 @@
 #include <vector>
 
 #include "core/Log.h"
+#include "tracking/source_mapping.h"
 
 namespace atemfx {
 
@@ -39,6 +39,11 @@ constexpr float kFaceToBodyWidth  = 2.5f;
 constexpr float kFaceToBodyHeight = 3.0f;
 constexpr float kFaceToBodyDrop   = 0.9f;  // in face heights, downward
 
+// Floor on VNTrackObjectRequest confidence. Below this the lock is lost for
+// this cycle (framing holds) but the last observation is kept so Vision can
+// re-acquire the same target. It is not a quality score.
+constexpr float kLockConfidence = 0.2f;
+
 struct Candidate
 {
     float centerX    = 0.5f;
@@ -63,6 +68,34 @@ Candidate fromObservation(VNDetectedObjectObservation* observation)
     return candidate;
 }
 
+CGRect visionBoxFromCandidate(const Candidate& candidate)
+{
+    const float width  = std::clamp(candidate.width, kMinLockExtent, 1.0f);
+    const float height = std::clamp(candidate.height, kMinLockExtent, 1.0f);
+    const float x0     = std::clamp(candidate.centerX - width * 0.5f, 0.0f, 1.0f);
+    const float y0Top  = std::clamp(candidate.centerY - height * 0.5f, 0.0f, 1.0f);
+    const float x1     = std::clamp(x0 + width, 0.0f, 1.0f);
+    const float y1Top  = std::clamp(y0Top + height, 0.0f, 1.0f);
+
+    CGRect box;
+    box.origin.x    = x0;
+    box.origin.y    = 1.0 - static_cast<double>(y1Top);
+    box.size.width  = static_cast<double>(x1 - x0);
+    box.size.height = static_cast<double>(y1Top - y0Top);
+    return box;
+}
+
+TrackingCandidate toPublished(const Candidate& candidate)
+{
+    TrackingCandidate published;
+    published.centerX    = candidate.centerX;
+    published.centerY    = candidate.centerY;
+    published.width      = candidate.width;
+    published.height     = candidate.height;
+    published.confidence = candidate.confidence;
+    return published;
+}
+
 class VisionTracker final : public Tracker
 {
 public:
@@ -79,21 +112,29 @@ public:
 
     bool latest(TrackingSnapshot& snapshot) const override;
 
+    void lock(float centerX, float centerY, float width, float height) override;
+    void unlock() override;
+    void setEnumerateCandidates(bool enable) override;
+    void candidates(std::vector<TrackingCandidate>& out) const override;
+
     std::string status() const override;
 
 private:
     void workerLoop();
     void analyze();
-    void publish(const Candidate* candidate);
-
-    // Picks the same subject as last time when it can. On a stage with three
-    // people, choosing "the biggest box" every cycle makes the frame jump
-    // between them; continuity matters more than picking the best detection.
-    const Candidate* chooseSubject(const std::vector<Candidate>& candidates) const;
+    void publish(const Candidate* candidate, bool fromOperatorLock);
+    const Candidate* chooseAutomatically(const std::vector<Candidate>& people);
+    bool collectPeople(VNImageRequestHandler* handler, std::vector<Candidate>& people);
+    bool trackLockedObject(CVPixelBufferRef buffer, CGImagePropertyOrientation orientation,
+                           Candidate& tracked);
+    void applyPendingTarget();
+    void beginLock(const Candidate& rect);
+    void clearLock();
 
     std::thread             worker_;
     std::atomic<bool>       running_{false};
     std::atomic<bool>       hungry_{false};
+    std::atomic<bool>       enumerateCandidates_{false};
     std::condition_variable frameArrived_;
 
     mutable std::mutex   frameMutex_;
@@ -113,16 +154,33 @@ private:
     std::size_t          workingRowBytes_ = 0;
     bool                 workingBottomUp_ = false;
 
-    mutable std::mutex resultMutex_;
-    TrackingSnapshot           result_;
-    Clock::time_point          resultTime_;
-    bool                       hasResult_ = false;
-    uint64_t                   detections_ = 0;
-    uint64_t                   cycles_     = 0;
-    std::string                failure_;
+    mutable std::mutex             resultMutex_;
+    TrackingSnapshot               result_;
+    Clock::time_point              resultTime_;
+    bool                           hasResult_ = false;
+    bool                           locked_    = false;
+    uint64_t                       detections_ = 0;
+    uint64_t                       cycles_     = 0;
+    std::string                    failure_;
+    std::vector<TrackingCandidate> publishedCandidates_;
 
-    VNDetectHumanRectanglesRequest* humanRequest_ = nil;
-    VNDetectFaceRectanglesRequest*  faceRequest_  = nil;
+    // UI thread writes, worker consumes. Never held together with resultMutex_.
+    std::mutex targetMutex_;
+    bool       pendingLock_   = false;
+    bool       pendingUnlock_ = false;
+    Candidate  pendingRect_;
+
+    // Who the tracker chose for itself, before any operator Pick. Worker
+    // thread only: the reset happens in applyPendingTarget(), which also runs
+    // there, so this needs no mutex of its own.
+    bool  autoChosen_  = false;
+    float autoCenterX_ = 0.5f;
+    float autoCenterY_ = 0.5f;
+
+    VNDetectHumanRectanglesRequest* humanRequest_     = nil;
+    VNDetectFaceRectanglesRequest*  faceRequest_      = nil;
+    VNSequenceRequestHandler*       sequenceHandler_  = nil;
+    VNDetectedObjectObservation*    trackObservation_ = nil;
 };
 
 bool VisionTracker::start(std::string& error)
@@ -172,8 +230,10 @@ void VisionTracker::stop()
         worker_.join();
     }
 
-    humanRequest_ = nil;
-    faceRequest_  = nil;
+    humanRequest_     = nil;
+    faceRequest_      = nil;
+    sequenceHandler_  = nil;
+    trackObservation_ = nil;
 }
 
 void VisionTracker::submit(const uint8_t* bgra,
@@ -209,6 +269,116 @@ void VisionTracker::submit(const uint8_t* bgra,
 
     hungry_.store(false, std::memory_order_release);
     frameArrived_.notify_one();
+}
+
+void VisionTracker::lock(float centerX, float centerY, float width, float height)
+{
+    clampNormalizedRect(centerX, centerY, width, height);
+
+    {
+        std::lock_guard<std::mutex> lock(targetMutex_);
+        pendingLock_           = true;
+        pendingUnlock_         = false;
+        pendingRect_.centerX   = centerX;
+        pendingRect_.centerY   = centerY;
+        pendingRect_.width     = width;
+        pendingRect_.height    = height;
+        pendingRect_.confidence = 1.0f;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(resultMutex_);
+        locked_            = true;
+        result_.available  = true;
+        result_.valid      = true;
+        result_.locked     = true;
+        result_.centerX    = centerX;
+        result_.centerY    = centerY;
+        result_.width      = width;
+        result_.height     = height;
+        result_.confidence = 1.0f;
+        hasResult_         = true;
+        resultTime_        = Clock::now();
+        failure_.clear();
+    }
+}
+
+void VisionTracker::unlock()
+{
+    {
+        std::lock_guard<std::mutex> lock(targetMutex_);
+        pendingUnlock_ = true;
+        pendingLock_   = false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(resultMutex_);
+        locked_        = false;
+        result_.locked = false;
+    }
+}
+
+void VisionTracker::setEnumerateCandidates(bool enable)
+{
+    enumerateCandidates_.store(enable, std::memory_order_release);
+}
+
+void VisionTracker::candidates(std::vector<TrackingCandidate>& out) const
+{
+    std::lock_guard<std::mutex> lock(resultMutex_);
+    out = publishedCandidates_;
+}
+
+void VisionTracker::beginLock(const Candidate& rect)
+{
+    sequenceHandler_  = [[VNSequenceRequestHandler alloc] init];
+    trackObservation_ = [VNDetectedObjectObservation
+        observationWithBoundingBox:visionBoxFromCandidate(rect)];
+}
+
+void VisionTracker::clearLock()
+{
+    sequenceHandler_  = nil;
+    trackObservation_ = nil;
+}
+
+void VisionTracker::applyPendingTarget()
+{
+    bool      doLock   = false;
+    bool      doUnlock = false;
+    Candidate rect;
+
+    {
+        std::lock_guard<std::mutex> lock(targetMutex_);
+        doLock         = pendingLock_;
+        doUnlock       = pendingUnlock_;
+        rect           = pendingRect_;
+        pendingLock_   = false;
+        pendingUnlock_ = false;
+    }
+
+    if (doUnlock || doLock)
+    {
+        // A new camera, or an operator who just aimed the shot: who the
+        // tracker had chosen for itself says nothing about either.
+        autoChosen_ = false;
+    }
+
+    if (doUnlock)
+    {
+        clearLock();
+        std::lock_guard<std::mutex> lock(resultMutex_);
+        locked_        = false;
+        result_.locked = false;
+    }
+
+    if (doLock)
+    {
+        beginLock(rect);
+        std::lock_guard<std::mutex> lock(resultMutex_);
+        locked_        = true;
+        result_.locked = true;
+    }
 }
 
 void VisionTracker::workerLoop()
@@ -252,8 +422,95 @@ void VisionTracker::workerLoop()
     }
 }
 
+bool VisionTracker::collectPeople(VNImageRequestHandler* handler, std::vector<Candidate>& people)
+{
+    NSError* error = nil;
+    const BOOL ok  = [handler performRequests:@[humanRequest_, faceRequest_] error:&error];
+    if (!ok)
+    {
+        std::lock_guard<std::mutex> lock(resultMutex_);
+        failure_ = error.localizedDescription.UTF8String ? error.localizedDescription.UTF8String
+                                                         : "detection failed";
+        ++cycles_;
+        return false;
+    }
+
+    for (VNObservation* observation in humanRequest_.results)
+    {
+        if ([observation isKindOfClass:[VNDetectedObjectObservation class]])
+        {
+            people.push_back(fromObservation((VNDetectedObjectObservation*)observation));
+        }
+    }
+
+    // Faces only when no body was found: a seated presenter, a close-up, or a
+    // shot too tight for the body detector to have anything to work with.
+    if (people.empty())
+    {
+        for (VNFaceObservation* face in faceRequest_.results)
+        {
+            Candidate candidate = fromObservation(face);
+            candidate.centerY += candidate.height * kFaceToBodyDrop;
+            candidate.width *= kFaceToBodyWidth;
+            candidate.height *= kFaceToBodyHeight;
+            people.push_back(candidate);
+        }
+    }
+
+    return true;
+}
+
+bool VisionTracker::trackLockedObject(CVPixelBufferRef buffer, CGImagePropertyOrientation orientation,
+                                      Candidate& tracked)
+{
+    if (!sequenceHandler_ || !trackObservation_)
+    {
+        return false;
+    }
+
+    VNTrackObjectRequest* request =
+        [[VNTrackObjectRequest alloc] initWithDetectedObjectObservation:trackObservation_];
+    request.trackingLevel = VNRequestTrackingLevelAccurate;
+
+    NSError* error = nil;
+    const BOOL ok  = [sequenceHandler_ performRequests:@[request]
+                                      onCVPixelBuffer:buffer
+                                          orientation:orientation
+                                                error:&error];
+    if (!ok)
+    {
+        std::lock_guard<std::mutex> lock(resultMutex_);
+        failure_ = error.localizedDescription.UTF8String ? error.localizedDescription.UTF8String
+                                                         : "object tracking failed";
+        return false;
+    }
+
+    VNDetectedObjectObservation* observation = nil;
+    for (VNObservation* result in request.results)
+    {
+        if ([result isKindOfClass:[VNDetectedObjectObservation class]])
+        {
+            observation = (VNDetectedObjectObservation*)result;
+            break;
+        }
+    }
+
+    if (!observation)
+    {
+        return false;
+    }
+
+    // Keep the last box even when confidence is low so the next cycle can
+    // re-acquire the same target instead of picking someone else.
+    trackObservation_ = observation;
+    tracked           = fromObservation(observation);
+    return tracked.confidence >= kLockConfidence;
+}
+
 void VisionTracker::analyze()
 {
+    applyPendingTarget();
+
     CVPixelBufferRef buffer = nullptr;
 
     // No copy: Vision reads straight out of the worker's own frame, which
@@ -280,95 +537,135 @@ void VisionTracker::analyze()
     const CGImagePropertyOrientation orientation =
         workingBottomUp_ ? kCGImagePropertyOrientationDownMirrored : kCGImagePropertyOrientationUp;
 
-    VNImageRequestHandler* handler =
-        [[VNImageRequestHandler alloc] initWithCVPixelBuffer:buffer
-                                                 orientation:orientation
-                                                     options:@{}];
+    const bool enumerate = enumerateCandidates_.load(std::memory_order_acquire);
+    const bool locked    = trackObservation_ != nil;
 
-    NSError* error = nil;
-    const BOOL ok  = [handler performRequests:@[humanRequest_, faceRequest_] error:&error];
-
-    CVPixelBufferRelease(buffer);
-
-    if (!ok)
+    std::vector<Candidate> people;
+    bool                   peopleOk = true;
+    if (!locked || enumerate)
     {
-        std::lock_guard<std::mutex> lock(resultMutex_);
-        failure_ = error.localizedDescription.UTF8String ? error.localizedDescription.UTF8String
-                                                         : "detection failed";
-        ++cycles_;
+        VNImageRequestHandler* handler =
+            [[VNImageRequestHandler alloc] initWithCVPixelBuffer:buffer
+                                                     orientation:orientation
+                                                         options:@{}];
+        people.reserve(8);
+        peopleOk = collectPeople(handler, people);
+    }
+
+    if (locked)
+    {
+        Candidate tracked;
+        if (trackLockedObject(buffer, orientation, tracked))
+        {
+            publish(&tracked, true);
+        }
+        else
+        {
+            // Lost this cycle. Do not choose another person.
+            publish(nullptr, true);
+        }
+    }
+    else if (peopleOk)
+    {
+        // Auto-select until the first Pick. A camera pointed at one presenter
+        // has to frame them with nobody touching the machine: waiting for an
+        // operator here published `valid = false` every cycle, which left
+        // FramingController with no subject and the crop standing still.
+        //
+        // What made auto-picking feel unaimable was that it re-chose every
+        // cycle and hopped between people. So the choice is sticky: biggest
+        // once, then whoever is nearest to the person already being followed.
+        // A Pick overrides it for good - after one, `locked_` makes publish()
+        // ignore this path entirely and nothing switches subjects again.
+        publish(chooseAutomatically(people), false);
+    }
+    else
+    {
+        CVPixelBufferRelease(buffer);
         return;
     }
 
-    std::vector<Candidate> candidates;
-    candidates.reserve(8);
-
-    for (VNObservation* observation in humanRequest_.results)
     {
-        if ([observation isKindOfClass:[VNDetectedObjectObservation class]])
+        std::lock_guard<std::mutex> lock(resultMutex_);
+        // Boxes stay visible until a lock, and again in Pick mode so the
+        // operator can switch. After a lock, drop them so SOURCE is not a
+        // Christmas tree of grey rectangles.
+        if (!locked || enumerate)
         {
-            candidates.push_back(fromObservation((VNDetectedObjectObservation*)observation));
+            publishedCandidates_.clear();
+            publishedCandidates_.reserve(people.size());
+            for (const Candidate& person : people)
+            {
+                publishedCandidates_.push_back(toPublished(person));
+            }
+        }
+        else if (!publishedCandidates_.empty())
+        {
+            publishedCandidates_.clear();
         }
     }
 
-    // Faces only when no body was found: a seated presenter, a close-up, or a
-    // shot too tight for the body detector to have anything to work with.
-    if (candidates.empty())
-    {
-        for (VNFaceObservation* face in faceRequest_.results)
-        {
-            Candidate candidate = fromObservation(face);
-            candidate.centerY += candidate.height * kFaceToBodyDrop;
-            candidate.width *= kFaceToBodyWidth;
-            candidate.height *= kFaceToBodyHeight;
-            candidates.push_back(candidate);
-        }
-    }
-
-    publish(chooseSubject(candidates));
+    CVPixelBufferRelease(buffer);
 }
 
-const Candidate* VisionTracker::chooseSubject(const std::vector<Candidate>& candidates) const
+const Candidate* VisionTracker::chooseAutomatically(const std::vector<Candidate>& people)
 {
-    if (candidates.empty())
+    if (people.empty())
     {
+        // Nobody in shot. Forget who we were following, so the next person to
+        // walk in is chosen on their own merits rather than by being nearest
+        // to someone who left.
+        autoChosen_ = false;
         return nullptr;
     }
 
-    std::lock_guard<std::mutex> lock(resultMutex_);
-
     const Candidate* best  = nullptr;
-    float            score = -1.0e9f;
-
-    for (const Candidate& candidate : candidates)
+    float            score = -1.0f;
+    for (const Candidate& person : people)
     {
-        // Area keeps the framing on whoever is closest to the camera when
-        // there is nobody to stay with; distance keeps it on the same person
-        // once there is.
-        float value = candidate.confidence + candidate.width * candidate.height;
-
-        if (hasResult_ && result_.valid)
+        // Area on the first frame - the presenter is the one filling the shot.
+        // After that, distance from the subject already being followed, so a
+        // second person walking through does not steal the frame.
+        float candidateScore;
+        if (autoChosen_)
         {
-            const float dx = candidate.centerX - result_.centerX;
-            const float dy = candidate.centerY - result_.centerY;
-            value -= 2.0f * std::sqrt(dx * dx + dy * dy);
+            const float dx = person.centerX - autoCenterX_;
+            const float dy = person.centerY - autoCenterY_;
+            candidateScore = -(dx * dx + dy * dy);
+        }
+        else
+        {
+            candidateScore = person.width * person.height;
         }
 
-        if (value > score)
+        if (candidateScore > score)
         {
-            score = value;
-            best  = &candidate;
+            score = candidateScore;
+            best  = &person;
         }
     }
 
+    if (best)
+    {
+        autoChosen_  = true;
+        autoCenterX_ = best->centerX;
+        autoCenterY_ = best->centerY;
+    }
     return best;
 }
 
-void VisionTracker::publish(const Candidate* candidate)
+void VisionTracker::publish(const Candidate* candidate, bool fromOperatorLock)
 {
     std::lock_guard<std::mutex> lock(resultMutex_);
 
+    if (locked_ && !fromOperatorLock)
+    {
+        return;
+    }
+
     result_.available = true;
     result_.valid     = candidate != nullptr;
+    result_.locked    = locked_;
 
     if (candidate)
     {
@@ -430,13 +727,24 @@ std::string VisionTracker::status() const
         return "starting";
     }
 
-    if (!result_.valid)
+    if (locked_)
     {
-        return "no subject  ·  " + std::to_string(detections_) + " seen";
+        if (!result_.valid)
+        {
+            return "lost lock  ·  waiting";
+        }
+        return "locked " + std::to_string(static_cast<int>(result_.confidence * 100.0f)) + "%  ·  " +
+               std::to_string(detections_) + " seen";
     }
 
-    return "subject " + std::to_string(static_cast<int>(result_.confidence * 100.0f)) + "%  ·  " +
-           std::to_string(detections_) + " seen";
+    if (!publishedCandidates_.empty())
+    {
+        const std::string shot =
+            std::to_string(publishedCandidates_.size()) + " in shot  ·  click SOURCE to choose";
+        return result_.valid ? "following  ·  " + shot : shot;
+    }
+
+    return "waiting  ·  click SOURCE to choose";
 }
 
 } // namespace

@@ -1,11 +1,11 @@
-# Project brief — ATEM FX
+# Project brief — CamVJ
 
 Motor de efeitos de vídeo em tempo real que senta **ao lado** de um switcher
 Blackmagic ATEM: uma câmera sai por AUX, é processada na GPU e volta numa
 entrada livre como versão tratada da mesma câmera.
 
 ```text
-CAMERA → ATEM AUX → DeckLink IN → ATEM FX → DeckLink OUT → ATEM INPUT
+CAMERA → ATEM AUX → DeckLink IN → CamVJ → DeckLink OUT → ATEM INPUT
 ```
 
 O operador corta entre o clean e o tratado como qualquer outra fonte.
@@ -28,7 +28,7 @@ Linux não é suportado.
 
 ## V1 está pronta quando
 
-O operador roteia uma câmera pelo ATEM FX e devolve ao mixer em 1080p59.94,
+O operador roteia uma câmera pelo CamVJ e devolve ao mixer em 1080p59.94,
 ajusta efeitos ao vivo, chama presets e aperta **FX TAKE**, com Program/Preview
 estáveis e sem dropped frames.
 

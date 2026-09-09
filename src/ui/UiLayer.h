@@ -30,6 +30,12 @@ public:
     void render(GraphicsDevice& device);
 
 private:
+    // The sidebar decides what the panel under the preview shows: opening
+    // another section, or folding EFFECTS away, sends it back to the stats
+    // strip. Kept here because the layout already owns which section is open,
+    // and the fold state itself carries no history to compare against.
+    void syncInspectorToSections();
+
     // Context setup that does not depend on the graphics API: ImGui flags,
     // the style and the font atlas. The backends differ only in how they
     // measure the display, so that measurement is what they pass in.
@@ -44,6 +50,11 @@ private:
 
     bool             initialized_ = false;
     ui::DisplayScale scale_;
+
+    // Last frame's fold state, so an edge can be told from a steady state.
+    bool sourceOpen_  = true;
+    bool outputOpen_  = true;
+    bool effectsOpen_ = true;
 };
 
 } // namespace atemfx

@@ -72,6 +72,9 @@ void FramingController::retarget(const TrackingSnapshot& tracking,
 {
     const float subjectSize = clampFinite(settings.subjectSize, 0.05f, 1.0f, 0.55f);
     const float headroom    = clampFinite(settings.headroom, 0.0f, 0.45f, 0.12f);
+    // Half the framed width would put the subject exactly on the edge, so the
+    // usable range stops short of it on both sides.
+    const float composeX    = clampFinite(settings.subjectOffsetX, -0.45f, 0.45f, 0.0f);
     const float deadZone    = clampFinite(settings.deadZone, 0.0f, 0.9f, 0.1f);
     const float maxZoom     = clampFinite(settings.maxZoom, 1.0f, 8.0f, 1.8f);
 
@@ -105,7 +108,9 @@ void FramingController::retarget(const TrackingSnapshot& tracking,
     const float subjectTop = clampFinite(tracking.centerY, 0.0f, 1.0f, 0.5f)
                              - subjectHeight * 0.5f;
 
-    float desiredX = clampFinite(tracking.centerX, 0.0f, 1.0f, 0.5f);
+    // The offset moves the frame, not the subject: to put the subject right of
+    // centre the crop has to sit left of them.
+    float desiredX = clampFinite(tracking.centerX, 0.0f, 1.0f, 0.5f) - composeX * halfWidth * 2.0f;
     float desiredY = subjectTop - headroom * framedHeight + halfHeight;
 
     // The crop never leaves the frame. When the subject walks towards the edge
@@ -119,11 +124,13 @@ void FramingController::retarget(const TrackingSnapshot& tracking,
     const bool settingsChanged = compositionValid_ &&
         (std::abs(subjectSize - lastSubjectSize_) > 1.0e-5f ||
          std::abs(headroom - lastHeadroom_) > 1.0e-5f ||
+         std::abs(composeX - lastOffsetX_) > 1.0e-5f ||
          std::abs(maxZoom - lastMaxZoom_) > 1.0e-5f ||
          std::abs(settings.outputAspect - lastOutputAspect_) > 1.0e-5f);
 
     lastSubjectSize_  = subjectSize;
     lastHeadroom_     = headroom;
+    lastOffsetX_      = composeX;
     lastMaxZoom_      = maxZoom;
     lastOutputAspect_ = settings.outputAspect;
     compositionValid_ = true;

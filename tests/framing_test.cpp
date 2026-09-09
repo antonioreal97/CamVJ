@@ -151,6 +151,50 @@ void checkHeadroom()
            "the space above the subject matches the headroom setting");
 }
 
+void checkOffsetXPlacesTheSubject()
+{
+    atemfx::FramingController controller;
+    atemfx::FramingSettings   settings;
+    settings.subjectOffsetX = 0.25f;
+
+    const atemfx::FramingRect rect =
+        run(controller, subject(0.5f, 0.5f, 0.15f, 0.3f), settings, 8.0f);
+
+    // Positive offset puts the subject right of the frame centre by that
+    // fraction of the framed width.
+    const float placement = (0.5f - rect.centerX) / (rect.halfWidth * 2.0f);
+    expect(near(placement, settings.subjectOffsetX, 0.01f),
+           "offset X places the subject off centre by the requested fraction");
+    expect(inside(rect), "an offset crop stays inside the frame");
+
+    atemfx::FramingController mirrored;
+    atemfx::FramingSettings   left = settings;
+    left.subjectOffsetX            = -0.25f;
+
+    const atemfx::FramingRect other =
+        run(mirrored, subject(0.5f, 0.5f, 0.15f, 0.3f), left, 8.0f);
+    expect(near((0.5f - other.centerX) / (other.halfWidth * 2.0f), -0.25f, 0.01f),
+           "a negative offset mirrors the placement");
+}
+
+void checkOperatorOffsetSliderMovesTheCrop()
+{
+    atemfx::FramingController controller;
+    atemfx::FramingSettings   settings;
+
+    const atemfx::FramingRect centred =
+        run(controller, subject(0.5f, 0.5f, 0.15f, 0.3f), settings, 8.0f);
+
+    // The dead zone is for detector twitch, never for a slider the operator
+    // just moved: the crop has to answer immediately.
+    settings.subjectOffsetX = 0.3f;
+    const atemfx::FramingRect moved =
+        run(controller, subject(0.5f, 0.5f, 0.15f, 0.3f), settings, 2.0f);
+
+    expect(moved.centerX < centred.centerX - 0.02f,
+           "moving the offset slider retargets the crop past the dead zone");
+}
+
 void checkSubjectSizeAndZoomCeiling()
 {
     atemfx::FramingController controller;
@@ -450,6 +494,8 @@ int main()
     checkPortraitReturnStaysPortrait();
     checkOperatorSizeSliderMovesTheCrop();
     checkOperatorHeadroomSliderMovesTheCrop();
+    checkOffsetXPlacesTheSubject();
+    checkOperatorOffsetSliderMovesTheCrop();
     checkLandscapeFollowPunchesInOnACloseSubject();
     checkSmoothingSlowsTheMove();
     checkNonFiniteInputsAreSurvivable();

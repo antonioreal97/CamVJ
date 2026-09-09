@@ -7,9 +7,12 @@
 - Test pattern GPU (`pattern` 0–2, `speed`, `markers`)
 - EffectChain ping-pong, registry, ShaderEffect
 - Efeitos: passthrough, rgb_split, pixelate, fm_raster, subpixel, shutter,
-  crt, mirror (HLSL+MSL) (`auto_frame` veio depois, na extensão de tracking)
+  frame_delay, vhs, crt, mirror (HLSL+MSL) (`auto_frame` veio depois, na
+  extensão de tracking)
 - UI: Source, Effects (add/remove/reorder), Preview, Stats, hot reload;
-  seções SOURCE / OUTPUT / EFFECTS / PARAMETERS dobram ao clicar o título
+  seções SOURCE / OUTPUT / EFFECTS dobram ao clicar o título; a coluna
+  esquerda recolhe a um rail de títulos (header chevron) para os monitores
+  crescerem
 - CLI headless / frames / dump PPM / enable / no-vsync
 - Timing CPU (ring 240) e GPU (queries D3D / completion Metal)
 - Resolução de shaders + cópia no build
@@ -22,6 +25,10 @@ ShaderEffect, sem issue de milestone. No M4, `--enable subpixel` mediu
 `fm_raster` e `crt` fecham a cadeia visual: um pass cada, CRT sem bloom.
 No M4: FM ~1,1 ms, CRT ~1,9 ms, FM+Subpixel+CRT ~2,7 ms.
 `shutter` usa history persistente + t1; sozinho ~0,5 ms. Não é FX-008.
+`frame_delay` é o outro lado do par: `shutter` borra o movimento num rastro
+só, este deixa a imagem de `spacing` quadros atrás parada atrás da imagem
+viva, várias vezes. Dois alvos persistentes em ping-pong, dois passes por
+quadro, ~0,3 ms de GPU sobre o passthrough no M4. Também não é FX-008.
 
 ## Extensão solicitada: loops por parâmetro
 
@@ -47,30 +54,107 @@ manual dos controles na UI ainda está pendente.
 
 Implementação em validação, sem abrir novo milestone. FX-022.
 
-- `src/tracking/`: `Tracker.h` (interface), `mac/VisionTracker.mm` (Vision,
-  corpo com fallback de rosto, ~12 Hz, thread própria), `tracker_stub.cpp`
-  (Windows: nullptr), `framing.h/.cpp` (controlador portátil).
+- `src/tracking/`: `Tracker.h` (interface: lock/unlock/candidates),
+  `mac/VisionTracker.mm` (Vision, corpo com fallback de rosto, object
+  tracker após Pick, ~12 Hz, thread própria), `tracker_stub.cpp`
+  (Windows: nullptr), `framing.h/.cpp` (controlador portátil),
+  `source_mapping.h/.cpp` (canvas↔captura, hit-test, caixa padrão).
 - Efeito `auto_frame` + `shaders/{hlsl,metal}/auto_frame` — um recorte só.
 - `VideoSource` ganhou `setFrameObserver()` e `mapping()`, ambos opcionais e
   identidade por padrão. `CameraSource` implementa os dois; DeckLink usará o
   mesmo seam no M1, com mapeamento 1:1.
 - `EffectContext::tracking` é o snapshot por frame; `App` faz o mapeamento de
-  coordenadas da câmera para a canvas.
+  coordenadas da câmera para a canvas com o mesmo helper do clique.
 - CTest `framing` em `tests/framing_test.cpp` (359 verificações): dead zone,
   acquire no assunto, sliders de Size/Headroom depois do lock, smoothing,
   headroom, limite de velocidade, clamp no quadro, hold/return, manual,
   entradas não finitas, recorte 9:16.
+- CTest `source_mapping` em `tests/source_mapping_test.cpp`: round-trip,
+  mirror, hit-test, clique vs drag, clamp da caixa padrão.
 - Auto Frame entra **ligado** e primeiro na chain. Na primeira captura o
   recorte vai até o assunto (não espera a dead zone do quadro inteiro).
 - Preview dividido SOURCE (câmera + caixa do assunto e do recorte) / PROGRAM
   (saída; em 9:16 a faixa central em aspecto retrato).
+- Pick subject no painel SOURCE: lista de pessoas, clique/drag no monitor
+  **sem auto-lock**. Até o operador escolher, PROGRAM fica no plano aberto.
+  Depois do lock, `VNTrackObjectRequest`; lost-lock não troca de pessoa.
 - `EffectContext::framing` / `framingActive` / `outputAspect` para o overlay.
   Canvas permanece 1920×1080.
 
-Verificado: build limpo, `ctest` 2/2, `--check-shaders` 11/11, gate headless
-200 frames, e o recorte conferido em dump PPM (zoom 2× em x=0,35).
-**Não verificado:** detecção com câmera ao vivo (permissão negada para este
-binário) e qualquer coisa no Windows.
+Verificado: build limpo, `ctest` 3/3 (incluindo `source_mapping`), `--check-shaders` 11/11, gate headless
+200 frames (Apple M4, 1,980 ms GPU). Test pattern continua `no frames from this input`.
+**Não verificado:** Pick com câmera ao vivo (duas pessoas, drag, lock perdido)
+e qualquer coisa no Windows.
+
+## Extensão solicitada: segurança da imagem
+
+Implementação em validação, sem abrir novo milestone.
+
+- `src/video/program_output.h/.cpp`: `ProgramMode` (FX / Clean / Freeze /
+  Black) e `ProgramOutput`, com alvos persistentes próprios
+  (`program.last`, `program.black`, `program.pixel` 1×1). É política de
+  saída, não efeito — preto e hold têm de funcionar sem entrada nenhuma.
+- `src/video/source_health.h/.cpp`: `SourceCaptureMonitor` (thread de
+  captura) e `SourceHealthMonitor` (thread de render). `Stale` = 0,5 s sem
+  quadro novo. Repeats contam ticks de render que reusaram o mesmo quadro —
+  não são capturas falhas nem prova de apresentação.
+- `EffectChain::process(ctx, in, mix)` com `mix == 0` pula `EffectRole::Visual`
+  e mantém `EffectRole::Framing`: Clean tira o look e preserva enquadramento
+  e 9:16.
+- `ProgramTransition` (mesmo header) faz FX↔Clean virar dissolução de 0,35 s
+  com suavização nas duas pontas. Entre as pontas cada nó visual renderiza em
+  `chain.wet` e o shader `crossfade` devolve por cima da imagem que aquele nó
+  recebeu — um passe extra por nó, pago só durante a transição. Framing nunca
+  entra na mistura. Freeze/Black seguram a rampa; start-up dá `snapTo`.
+  Sem o shader `crossfade` a cadeia cai para a ponta mais próxima: perde-se a
+  dissolução, nunca o quadro.
+- Painel OUTPUT: quatro botões, desenhados **antes** do `if (!expanded)` —
+  recuperação não pode depender de painel aberto. Continuam disponíveis com
+  Operation lock ligado.
+- Queda de entrada trava Freeze; câmera que volta exige seleção + FX/Clean;
+  Black do operador não é sobreposto. Sem entrada rodando, o rescan mantém
+  "nada selecionado" em vez de reapontar para o Test Pattern.
+- CLI `--program fx|clean|freeze|black`; modo inválido é erro de uso (exit 2).
+- CTests novos: `source_health` e `program_output` (latch dos dois modos ao
+  vivo, Black não sobreposto, framing do quadro segurado, Clean com
+  automações andando, rampa da dissolução e mistura por nó visual).
+
+Verificado: build limpo, `ctest` 5/5, gate headless 200 frames (Apple M4,
+0,761 ms GPU). Dumps PPM por modo com `rgb_split` ligado: FX traz a franja
+de cor, Clean sai igual a rodar só `auto_frame` (look fora, recorte de pé),
+Black é zero em todo o quadro e Freeze sem quadro anterior também é preto.
+Dissolução verificada no Metal de verdade (não só no RHI falso do teste):
+dumps com `mirror` em mix 0 / 0,5 / 1, mascarando o marcador em movimento por
+duas rodadas de cada ponta — 2,06 M pixels estáveis, metade deles alterada
+pelo efeito, e o mix 0,5 bate o ponto médio com erro máximo de 0,5 (só
+arredondamento de 8 bits). `--check-shaders`: 14 shaders, 0 falhas.
+**Não verificado:** derrubar a câmera de verdade (FX30 no USB) — este binário
+não tem permissão de câmera aqui; e qualquer coisa no Windows.
+
+## Extensão solicitada: PROGRAM como webcam
+
+Implementado no macOS 13+, ponta a ponta ainda por validar:
+
+- Não instala nada. Conecta como cliente comum ao **stream sink** da extensão
+  de câmera já instalada (a do OBS), que autoriza qualquer cliente. Publicar
+  extensão própria exige conta paga Apple, Developer ID e notarização.
+- O dispositivo nos apps de chamada chama-se **OBS Virtual Camera**: a imagem
+  é do CamVJ, o nome é de quem publica a extensão.
+- Preparação de máquina, uma vez: instalar o OBS, abrir uma vez e habilitar em
+  Ajustes do Sistema > Geral > Itens de Início e Extensões > Extensões de
+  Câmera. O OBS não precisa ficar aberto depois disso.
+- `submit` acontece depois do `ProgramOutput` e antes de `endProcessing`, no
+  command buffer do processamento: um pass RGBA16F→BGRA8 num CVPixelBuffer com
+  IOSurface. O quadro só vai para o CoreMediaIO no completion handler, fora do
+  frame loop.
+- Limites: pool com `AllocationThreshold` e fila do sink cheia viram *dropped*
+  no painel. Consumidor lento custa quadro perdido, nunca travamento da chain
+  nem atraso no telão.
+- 1920×1080, um remetente por vez, macOS 13+. Windows é stub.
+- Botão no painel OUTPUT, flag `--webcam`, saída 1 quando pedida e não subiu.
+- Verificado aqui: build limpo, gate headless 200 frames, caminho de erro com
+  mensagem acionável e exit 1. **Falta** confirmar quadros chegando num app de
+  chamada — depende de habilitar a extensão nos Ajustes do Sistema.
 
 ## Prioridade ativa: macOS primeiro
 

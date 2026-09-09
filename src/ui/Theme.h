@@ -59,20 +59,83 @@ void drawBrandGlyph(ImDrawList* drawList, ImVec2 centre, float size);
 // State lives for the session; imgui.ini is disabled on purpose.
 enum class PanelSection : int
 {
-    Source     = 0,
-    Output     = 1,
-    Effects    = 2,
-    Parameters = 3,
+    Source  = 0,
+    Output  = 1,
+    Effects = 2,
 };
 
 bool panelOpen(PanelSection section);
+
+// The left column can shrink to a rail of rack titles so SOURCE and PROGRAM
+// inherit the width. Session-only, like the section folds; imgui.ini is off.
+bool sidebarCollapsed();
+void setSidebarCollapsed(bool collapsed);
+
+// Width of that rail, authored at 100%. Layout scales it the same way it
+// scales the 392 px column, so the two never disagree about the leftover.
+float sidebarRailWidth();
+
+// Four stacked titles that reopen the column. PROGRAM has no fold, so it
+// only expands; SOURCE / OUTPUT / EFFECTS also open their section.
+void drawSidebarRail(bool outputSending);
 
 // Rack-label header: accent bar, uppercase title, optional right-aligned meta.
 // Click toggles the section. Returns true when the body should be drawn.
 bool drawPanelHeader(const char* title, ImU32 accent, PanelSection section,
                      const char* meta = nullptr);
 
-void drawLiveBadge(bool live);
+// Sidebar action buttons.
+//
+// The rack look gives every control the same grey surface, which makes
+// "Stop output" read as quietly as "Rescan displays". The accent puts the
+// weight back where the operator needs it, using the two colours the identity
+// already assigns: cyan on the source and chain side, magenta on program.
+enum class ButtonAccent
+{
+    Neutral,
+    Cyan,
+    Magenta,
+};
+
+// Height of a sidebar action row. Taller than a text frame on purpose: these
+// are hit during a show, sometimes without looking at them.
+float actionHeight();
+
+// Width of one of `count` buttons that share the rest of the current row, so
+// an action row ends flush with the panel instead of ragged.
+float rowButtonWidth(int count);
+
+// `active` fills the button with the accent — a mode that is currently on,
+// not a hover state.
+bool actionButton(const char* label, ButtonAccent accent,
+                  ImVec2 size = ImVec2(0.0f, 0.0f), bool active = false);
+
+// Compact square button carrying a drawn glyph. The effect rows used "^ v x"
+// set in the UI face, which reads as text and gives a delete exactly as much
+// weight as a reorder.
+enum class Glyph
+{
+    Up,
+    Down,
+    Close,
+    Loop,
+    Collapse,
+    Expand,
+};
+
+// `active` fills the button with the accent, the way actionButton does: a
+// state that is currently on, not a hover.
+bool glyphButton(const char* id, Glyph glyph, float size, const char* tooltip,
+                 ButtonAccent accent = ButtonAccent::Neutral, bool active = false);
+
+// Mono caption for a group of controls inside a panel, with an optional
+// right-aligned value. Subordinate to drawPanelHeader: no accent bar, no fold,
+// so a group never looks like a section that failed to open.
+void drawGroupLabel(const char* label, const char* value = nullptr,
+                    ImU32 valueColour = kRackGreyU32);
+
+enum class OutputStatus { Idle, Live, Frozen };
+void drawLiveBadge(OutputStatus status);
 
 } // namespace theme
 } // namespace atemfx

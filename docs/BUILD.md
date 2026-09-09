@@ -1,15 +1,15 @@
-# Building ATEM FX
+# Building CamVJ
 
 **Status: M0 engine implemented; M1 discovery awaiting Windows validation.**
-ATEM FX builds on macOS (Metal) and Windows (Direct3D 11). CMake picks the GPU
+CamVJ builds on macOS (Metal) and Windows (Direct3D 11). CMake picks the GPU
 backend from the host. DeckLink discovery is a separate, opt-in Windows build
 feature.
 
 The only required external dependency is Dear ImGui. DeckLink discovery uses
 the external Blackmagic DeckLink SDK when enabled (see below). Logging is a small `printf`
 wrapper in `src/core/Log.cpp` — spdlog is planned, not linked. Catch2 is not
-wired; the parameter automation test is standalone C++ registered with CTest,
-with no additional dependency. There is no JSON config file.
+wired; the five portable tests are standalone C++ registered with CTest, with
+no additional dependency. There is no JSON config file.
 
 ---
 
@@ -127,11 +127,18 @@ Every change must at least pass this before it is called done:
 ./build/bin/atem_fx --headless --frames 200
 ```
 
-### Parameter automation check
+### Portable checks (CTest)
 
-`BUILD_TESTING=ON` (the default) builds `parameter_automation_test` from
-`tests/parameter_automation_test.cpp` and registers it in CTest as
-`parameter_automation`:
+`BUILD_TESTING=ON` (the default) builds five standalone test executables from
+`tests/` and registers them in CTest:
+
+| Test | Source | What it covers |
+| --- | --- | --- |
+| `parameter_automation` | `parameter_automation_test.cpp` | loop evaluation and parameter semantics |
+| `framing` | `framing_test.cpp` | the framing controller (dead zone, smoothing, hold/return, offsets) |
+| `source_mapping` | `source_mapping_test.cpp` | source pixels to canvas coordinates |
+| `source_health` | `source_health_test.cpp` | input-loss and reconnect policy |
+| `program_output` | `program_output_test.cpp` | the PROGRAM state machine and the FX/Clean dissolve |
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
@@ -141,10 +148,11 @@ ctest --test-dir build --output-on-failure
 
 For a Visual Studio build, build with `--config Release` and use
 `ctest --test-dir build -C Release --output-on-failure`.
-The test needs no display or GPU and no Catch2 installation. It checks loop
-evaluation and parameter semantics; it does not replace the 200-frame
-headless gate. Loop controls are configured in the effect UI and last for the
-current session; no automation CLI flags or preset storage are provided.
+The tests need no display, no GPU and no Catch2 installation. They check
+scalar contracts only; they do not replace the 200-frame headless gate.
+
+Loop controls are configured in the effect UI and last for the current
+session; there are no automation CLI flags and no preset storage.
 
 ### CLI
 
@@ -155,7 +163,10 @@ current session; no automation CLI flags or preset storage are provided.
   --enable a,b,c      start with exactly these effects enabled
   --no-vsync          present without waiting for the display
   --source ID         start on this video input (see --list-sources)
+  --pattern NAME      test pattern: bars, plasma, grid or led-mapping
   --output ID         send the processed frame to this display
+  --webcam            send PROGRAM as OBS Virtual Camera (macOS)
+  --program MODE      start PROGRAM in fx, clean, freeze or black
   --list-sources      list the available video inputs and exit
   --list-displays     list the available displays and exit
   --check-shaders     compile every shader and exit (opens no device)
@@ -164,11 +175,29 @@ current session; no automation CLI flags or preset storage are provided.
 ```
 
 `--enable` exists because the self-test has no UI to click. Type ids are the
-registry ids: `auto_frame`, `passthrough`, `rgb_split`, `pixelate`, `fm_raster`,
-`subpixel`, `shutter`, `crt`, `mirror`.
+registry ids, in default-chain order: `auto_frame`, `passthrough`, `rgb_split`,
+`pixelate`, `fm_raster`, `subpixel`, `shutter`, `frame_delay`, `mirror`, `vhs`,
+`crt`. It only enables and disables those nodes; it never creates extra ones.
 
 ```bash
 ./build/bin/atem_fx --headless --frames 60 --enable rgb_split,pixelate --dump chain.ppm
+```
+
+`--pattern` selects the initial internal pattern and cannot be combined with
+a camera `--source`. `led-mapping` is a static calibration chart with both
+the full 16:9 canvas and centred 9:16 output window. It bypasses all effects
+without changing their settings; PROGRAM Freeze and Black still apply.
+
+```bash
+./build/bin/atem_fx --headless --pattern led-mapping --frames 200 --dump led-mapping.ppm
+```
+
+`--program` opens the show on a deliberate PROGRAM state — `black` is the
+useful one before anything is live. The modes and the input-loss policy are in
+[RUNTIME.md](RUNTIME.md#program-safety).
+
+```bash
+./build/bin/atem_fx --source camera:... --output 2 --program black
 ```
 
 With a window, `--frames N` still works: the app closes after N frames.
@@ -241,6 +270,19 @@ closes. `--output` needs a window and is ignored under `--headless`.
 
 An unknown display id warns and starts with no output rather than refusing to
 start: losing the wall is bad, having nothing at all is worse.
+
+### PROGRAM as a webcam
+
+```bash
+./build/bin/atem_fx --webcam
+```
+
+macOS only, and it is a *client* of an already installed camera extension
+(OBS's) rather than one this build installs: call applications therefore list
+the device as **OBS Virtual Camera**. The OUTPUT panel has the same switch. A
+wall and a call are two consumers of the same PROGRAM picture and are normally
+used together. Setup, limits and the Windows gap are in
+[VIRTUAL_CAMERA.md](VIRTUAL_CAMERA.md).
 
 ### Camera permission
 
@@ -352,6 +394,31 @@ intended check; a machine without a GPU (some sandboxes) cannot run it.
 
 ---
 
+## Versioning
+
+One source of truth: `project(AtemFx VERSION x.y.z)` on line 3 of
+`CMakeLists.txt`. Everything else derives from it — `MACOSX_BUNDLE_BUNDLE_VERSION`
+and `MACOSX_BUNDLE_SHORT_VERSION_STRING` in the app bundle, and the version both
+packaging scripts put in the file name when `-v` / `-Version` is not given.
+
+Current version: **1.0.0**, matching the `v1.0.0` tag and the GitHub release.
+
+To release a new version:
+
+1. bump `project(AtemFx VERSION ...)` in `CMakeLists.txt`;
+2. reconfigure and build Release, then run the headless gate and CTest;
+3. package (below) and check the file name carries the new number;
+4. tag `vX.Y.Z` on the commit that carries the bump.
+
+Do not pass `-v` / `-Version` to produce a release package: an override that
+disagrees with `CMakeLists.txt` puts a version in the file name that nothing in
+the bundle repeats. The flag is for one-off builds.
+
+The binary (`atem_fx`) and the bundle id (`fx.atem.engine`) are not versioned
+and do not change — a new bundle id would invalidate the macOS camera grant.
+
+---
+
 ## Distribution packages
 
 Unsigned packages for handing builds to other machines. There is no Apple
@@ -383,7 +450,8 @@ First open on another Mac: right-click the app → **Open** (Gatekeeper). Grant
 camera access when prompted, or later under **System Settings › Privacy &
 Security › Camera**.
 
-Options: `-B BUILD_DIR`, `-v VERSION`, `--skip-smoke`.
+Options: `-B BUILD_DIR`, `-v VERSION`, `--skip-smoke`. Without `-v` the version
+comes from `CMakeLists.txt` — see [Versioning](#versioning).
 
 ### Windows — ZIP
 
@@ -402,7 +470,8 @@ Produces `dist/CamVJ-<version>-windows-x64.zip` containing `CamVJ/` with
 anywhere and run `CamVJ.exe`. SmartScreen may warn on first launch — choose
 **More info** → **Run anyway** when you trust the build.
 
-Options: `-BuildDir`, `-Version`, `-SkipSmoke`.
+Options: `-BuildDir`, `-Version`, `-SkipSmoke`. Without `-Version` the version
+comes from `CMakeLists.txt` — see [Versioning](#versioning).
 
 ---
 

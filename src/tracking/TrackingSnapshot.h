@@ -20,11 +20,39 @@ struct TrackingSnapshot
     // up, so the pixel side never has to know about timeouts.
     bool valid = false;
 
+    // The operator picked this target. False means the tracker is still
+    // auto-choosing. Framing does not read this; the SOURCE overlay and the
+    // status line do.
+    bool locked = false;
+
     float centerX = 0.5f;  // subject centre
     float centerY = 0.5f;
     float width   = 0.0f;  // subject extent, fraction of the frame
     float height  = 0.0f;
     float confidence = 0.0f;
+};
+
+// A detected person, for the Pick-mode overlay and list. Same coordinate space
+// as TrackingSnapshot: whoever filled the vector says whether that is capture
+// or canvas. Not part of the pixel pipeline.
+struct TrackingCandidate
+{
+    float centerX    = 0.5f;
+    float centerY    = 0.5f;
+    float width      = 0.0f;
+    float height     = 0.0f;
+    float confidence = 0.0f;
+};
+
+// Written by the UI in canvas UV; App maps it into capture space and calls
+// Tracker::lock() between frames, the same way it opens a camera.
+struct TrackingLockRequest
+{
+    bool  pending = false;
+    float centerX = 0.5f;
+    float centerY = 0.5f;
+    float width   = 0.16f;
+    float height  = 0.24f;
 };
 
 } // namespace atemfx

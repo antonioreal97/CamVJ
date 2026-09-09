@@ -28,6 +28,7 @@ public:
     void        shutdown() override;
     GpuTexture* render(EffectContext& context) override;
     std::string status() const override;
+    SourceHealth health() const override { return healthMonitor_.snapshot(); }
 
     void          setFrameObserver(FrameObserver observer) override;
     SourceMapping mapping() const override;
@@ -51,7 +52,7 @@ private:
     std::size_t          pendingRowBytes_ = 0;
     bool                 pendingBottomUp_ = false;
     bool                 hasPending_      = false;
-    uint64_t             framesReceived_  = 0;
+    SourceCaptureMonitor captureMonitor_;
 
     // Render-thread copy, swapped with pending_ so neither side allocates once
     // the frame size settles.
@@ -60,6 +61,7 @@ private:
     uint32_t             frameHeight_   = 0;
     std::size_t          frameRowBytes_ = 0;
     bool                 frameBottomUp_ = false;
+    SourceHealthMonitor  healthMonitor_;
 
     // The canvas shape the last render used, for mapping(). The canvas is
     // fixed by the project format, but the source is told rather than assuming.

@@ -1,4 +1,4 @@
-# ATEM FX — ATEM Integration
+# CamVJ — ATEM Integration
 
 **Status: Design — not implemented.** There is no `src/atem/`, no ATEM SDK
 link, and no network talk to a switcher. This file records the V1 behaviour
@@ -14,10 +14,10 @@ The ATEM controls *behaviour*. It is never part of the pixel path. See
 
 ## Why it exists
 
-ATEM FX sits *beside* the mixer, not inside it.
+CamVJ sits *beside* the mixer, not inside it.
 
 ```text
-CAMERA → ATEM AUX → DeckLink IN → ATEM FX → DeckLink OUT → ATEM INPUT 8
+CAMERA → ATEM AUX → DeckLink IN → CamVJ → DeckLink OUT → ATEM INPUT 8
 ```
 
 The operator cuts between the clean camera and the treated return the same
@@ -71,7 +71,7 @@ That action should configure the switcher:
 CAM 3
   → ATEM AUX
   → DeckLink IN
-  → ATEM FX
+  → CamVJ
   → DeckLink OUT
   → ATEM INPUT 8
 ```
@@ -83,7 +83,7 @@ CAM 3 clean     = INPUT 3 (or whatever the camera input is)
 CAM 3 treated   = INPUT 8 (the FX return)
 ```
 
-AUX routing is the ATEM's job. ATEM FX publishes the request; it does not
+AUX routing is the ATEM's job. CamVJ publishes the request; it does not
 become a general-purpose switcher controller.
 
 ---
@@ -108,7 +108,7 @@ discussion; it is not a commercial promise.
 
 ## What this is not
 
-- ATEM FX is not a replacement for the ATEM software.
+- CamVJ is not a replacement for the ATEM software.
 - It does not switch the show.
 - It does not own more than the AUX it is fed and the input it returns on.
 - It does not talk to the switcher from the GPU thread.

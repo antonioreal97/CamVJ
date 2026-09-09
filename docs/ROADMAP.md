@@ -1,4 +1,4 @@
-# ATEM FX — Roadmap
+# CamVJ — Roadmap
 
 **59.94 fps is the engineering target everywhere.** Older notes said "60 fps"
 for M0 acceptance; the budget in code and in `App::reportTimings()` is
@@ -31,8 +31,9 @@ validation.
   **Direct3D 11 (Windows)**.
 - GPU test pattern source at 1920×1080 (not MP4).
 - Linear `EffectChain` + `EffectRegistry` + generic `ParameterSet` UI.
-- Effects: Passthrough, RGB Split, Pixelate, FM Raster, Subpixel, Shutter,
-  CRT, Mirror and Auto Frame — each with HLSL and MSL.
+- Effects: Passthrough, RGB Split, Pixelate, Mirror — each with HLSL and MSL.
+  (`fm_raster`, `subpixel`, `shutter`, `frame_delay`, `vhs`, `crt` and
+  `auto_frame` were added afterwards, on the same abstraction: eleven today.)
 - ImGui panels: Source, Effects (add/remove/reorder), Preview, Stats.
 - CPU and GPU timing. Measured on macOS, Apple M4, 1920×1080: 3000 frames at
   134 fps with vsync, 0.7 ms of GPU processing against a 16.68 ms budget.
@@ -143,6 +144,26 @@ This is a display output. It is not genlocked, the operating system paces it,
 and it does not make M1 smaller: SDI in, SDI out and the frame queues are
 untouched, and a clean return to an ATEM input still needs DeckLink playback.
 
+### PROGRAM safety and the webcam output
+
+Requested on 2026-09-09, after display output: what is on the wall right now,
+and how it comes off in one move. PROGRAM became four operator states in one
+control — FX, Clean, Freeze, Black — with FX and Clean as the ends of a
+0.35 s dissolve through the `crossfade` shader. `Clean` removes the look and
+keeps the framing. Freeze and Black keep capture, tracking, the chain and the
+output surface running, so the wall never sees a dead signal. Input loss
+latches Freeze, never picks an input, and never overrides an operator Black.
+Behaviour in [RUNTIME.md](RUNTIME.md#program-safety); `program_output` and
+`source_health` have their own CTests.
+
+The same PROGRAM picture also goes out as a webcam on macOS (`--webcam`), as a
+client of an installed camera extension rather than one this build installs —
+so calls list it under OBS's name. Design and limits in
+[VIRTUAL_CAMERA.md](VIRTUAL_CAMERA.md). Windows is not implemented.
+
+Like the extensions before it, this is bounded work on the linear chain. It
+does not open M2, M3 or M5, and it does not reduce what M1 owes.
+
 ### What M2 is *not*
 
 M0 already has a linear chain, a registry, generic parameters, and
@@ -184,9 +205,14 @@ The UI already renders any effect from `ParameterSet`. M3 is **presets**
 | FX-021 | Camera inputs         | M0        | done   |
 | FX-022 | Subject tracking      | —         | macOS implemented, pending live camera validation; Windows detector deferred (show runs on macOS) |
 | FX-023 | Display output        | —         | macOS implemented and measured; Windows pieces pending a build |
+| FX-024 | PROGRAM safety (FX / Clean / Freeze / Black, input loss) | — | implemented, with `program_output` and `source_health` CTests |
+| FX-025 | PROGRAM as a webcam   | —         | macOS implemented (client of an installed extension); Windows not implemented |
 
 FX-006's sibling Mirror shipped in M0 as well; it was never given its own
-issue number.
+issue number. Neither did the effects added after it — `fm_raster`,
+`subpixel`, `shutter`, `frame_delay`, `vhs` and `crt` — because a new effect
+costs two shaders, one `.cpp` and one registration line and never touches the
+pipeline (`AGENTS.md` §4).
 
 ---
 
@@ -200,4 +226,8 @@ issue number.
   are in `docs/TRACKING.md`.
 - spdlog — call shape in `Log.h` matches; implementation is `printf`.
 - JSON config — no schema, no loader.
-- CI — no `.github/` workflow.
+- CI — no `.github/` workflow. The headless gate, `--check-shaders` and CTest
+  all run without a display and are what a workflow would call.
+- Packages are unsigned: no Apple Developer ID / notarization, no Windows
+  Authenticode. Versioning and the release steps are in
+  [BUILD.md](BUILD.md#versioning).
