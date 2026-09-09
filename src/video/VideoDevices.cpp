@@ -1,7 +1,9 @@
 #include "video/VideoDevices.h"
 
+#include "decklink/decklink_capture.h"
 #include "video/CameraCapture.h"
 #include "video/CameraSource.h"
+#include "video/DeckLinkSource.h"
 #include "video/TestPatternSource.h"
 
 namespace atemfx {
@@ -16,6 +18,9 @@ std::vector<VideoSourceDescriptor> enumerateVideoSources()
 
     const std::vector<VideoSourceDescriptor> cameras = enumerateCameras();
     sources.insert(sources.end(), cameras.begin(), cameras.end());
+
+    const std::vector<VideoSourceDescriptor> deckLinkSources = enumerateDeckLinkCaptureSources();
+    sources.insert(sources.end(), deckLinkSources.begin(), deckLinkSources.end());
 
     return sources;
 }
@@ -35,6 +40,11 @@ std::unique_ptr<VideoSource> createVideoSource(const VideoSourceDescriptor& desc
     if (descriptor.id.rfind(kCameraSourceIdPrefix, 0) == 0)
     {
         return std::make_unique<CameraSource>(descriptor);
+    }
+
+    if (descriptor.id.rfind(kDeckLinkSourceIdPrefix, 0) == 0)
+    {
+        return std::make_unique<DeckLinkSource>(descriptor);
     }
 
     return nullptr;

@@ -4,7 +4,9 @@
 
 **M0 está fechado; M1 DeckLink está em andamento** (Windows). FX-010
 discovery foi implementado e aguarda validação de build e placa Windows.
-Captura, playback, filas, timing e split de thread ainda não existem.
+FX-011 tem seam portátil (`decklink_capture.h` + `DeckLinkSource`) já integrado
+ao `VideoSource`, mas a captura Windows com SDK/placa ainda não existe.
+Playback, filas, timing e split de thread ainda não existem.
 
 Pedido atual (2026-09-08): pacotes de distribuição unsigned —
 `scripts/package_macos.sh` → `dist/CamVJ-<ver>-macos-<arch>.dmg` (CamVJ.app +
@@ -147,6 +149,13 @@ implementação Windows e stub sem SDK; integração opcional do SDK em
 `cmake/decklink.cmake`; dispatch de `--list-decklink` no startup.
 Documentação e memory-bank distinguem discovery existente de pipeline M1
 futuro. Nenhum capture, playback ou hotplug foi adicionado.
+
+FX-011 seam inicial (2026-09-09): `src/decklink/decklink_capture.h` define a
+API capture-only e `decklink_capture_stub.cpp` mantém builds sem SDK sem fontes
+SDI. `src/video/DeckLinkSource.*` ocupa o seam `VideoSource` usando o mesmo
+upload BGRA + `source_blit` das câmeras, com mapping identidade e single-slot
+temporário. A implementação real `decklink_capture_win.cpp` ainda falta e
+depende de validação Windows/DeckLink.
 
 Validação final em 2026-09-08: build Release macOS passou; 20 verificações
 de CLI passaram, inclusive conflitos com os novos comandos de fontes e

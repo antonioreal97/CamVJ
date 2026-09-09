@@ -86,11 +86,17 @@ binário) e qualquer coisa no Windows.
 **FX-010 ainda não está done:** build com SDK e validação com driver/placa
 Windows pendentes.
 
+- FX-011 começou pelo seam seguro: `decklink_capture.h` declara enumeração e
+  callback de captura, `decklink_capture_stub.cpp` retorna nenhuma fonte em
+  builds sem SDK, e `DeckLinkSource` já adapta frames BGRA ao `VideoSource` sem
+  playback, filas ou clock. A implementação Windows (`decklink_capture_win.cpp`)
+  ainda não existe; sem ela, `--list-sources` segue sem SDI.
+
 ## O que não existe
 
 | Item | Milestone |
 | --- | --- |
-| Captura/saída DeckLink, filas, clock de vídeo, split de thread | M1 |
+| Captura DeckLink real/saída DeckLink, filas, clock de vídeo, split de thread | M1 |
 | Grafo DAG, efeito de feedback | M2 |
 | Presets JSON | M3 |
 | `src/atem/`, FX Bus, FX TAKE | M4 |

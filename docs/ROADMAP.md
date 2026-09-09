@@ -54,7 +54,10 @@ devices and the metadata reported by a real device. The macOS headless gate
 continues to protect the M0 rendering path; it cannot validate DeckLink.
 
 The remaining M1 work is FX-011 capture, FX-012 playback, FX-013 frame queues
-and FX-014 video timing, including separation of processing from the UI.
+and FX-014 video timing, including separation of processing from the UI. The
+portable FX-011 seam now exists (`decklink_capture.h` plus `DeckLinkSource`),
+but the Windows SDK capture implementation and hardware validation are still
+open.
 
 ### Extension to the current effect system
 
@@ -148,7 +151,7 @@ The UI already renders any effect from `ParameterSet`. M3 is **presets**
 | FX-008 | Feedback buffer / effect | M2     |        |
 | FX-009 | Presets               | M3        |        |
 | FX-010 | DeckLink discovery    | M1        | implemented; Windows build/device validation pending |
-| FX-011 | DeckLink capture      | M1        |        |
+| FX-011 | DeckLink capture      | M1        | portable source seam implemented; Windows SDK capture pending |
 | FX-012 | DeckLink playback     | M1        |        |
 | FX-013 | Frame queues          | M1        |        |
 | FX-014 | Video timing          | M1        |        |

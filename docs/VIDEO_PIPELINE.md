@@ -225,6 +225,13 @@ Discovery is implemented but awaits Windows build and device validation.
 It does not implement capture, playback, hotplug monitoring, frame queues or
 new processing threads. FX-010 is not yet marked done.
 
+FX-011 has a portable seam in place: `src/decklink/decklink_capture.h` declares
+capture-only enumeration and a callback interface, `decklink_capture_stub.cpp`
+keeps non-SDK builds empty, and `DeckLinkSource` can already occupy the
+`VideoSource` slot without changing the effect chain. The Windows SDK-backed
+capture implementation is still missing, so no SDI source appears until that
+file is added and validated on hardware.
+
 ---
 
 ## Part C — M1 video pipeline (design — not implemented)
@@ -275,6 +282,11 @@ These exist so M1 does not rewrite the engine:
 | `App::renderFrame()` processing block (`beginProcessing` … `endProcessing`) | This is the work that moves to the GPU thread. Presentation/UI stays on the window thread. |
 | `TargetPool` + RGBA16Float | Headroom for 10-bit YUV upload; persistent keys for history. |
 | Headless path | Keep it. Hardware tests are extra, not a replacement. |
+
+`DeckLinkSource` intentionally mirrors `CameraSource` only as far as the current
+M0 seam allows: newest-frame handoff, CPU BGRA upload through `source_blit`, and
+identity source mapping for a 1920x1080 SDI frame. The single-slot handoff is a
+temporary bridge, not FX-013's production queue.
 
 ### Queues (FX-013)
 
