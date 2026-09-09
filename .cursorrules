@@ -68,4 +68,5 @@ justificar em `docs/`.
 Nome na interface: `CamVJ` (caixa mista). Tema em `src/ui/Theme.*`.
 Tungsten (`#FF9B3D`) só para o sujeito travado e o tally LIVE. SOURCE é
 Split Cyan, PROGRAM é Split Magenta. Fundo Studio Black. Sem gradiente,
-sombra ou brilho. Layout fixo, não dockable.
+sombra ou brilho. Layout fixo, não dockable. A coluna esquerda recolhe a
+um rail de títulos (chevron no header); clicar um título reabre a seção.

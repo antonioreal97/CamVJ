@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(AtemFx VERSION 0.1.0 LANGUAGES CXX)
+project(AtemFx VERSION 1.0.0 LANGUAGES CXX)
 
 # ---------------------------------------------------------------------------
 # Platform selection
@@ -118,6 +118,11 @@ set(ATEMFX_SOURCES
     src/video/VideoDevices.cpp
     src/video/VideoDevices.h
     src/video/VideoSource.h
+    src/video/source_health.cpp
+    src/video/source_health.h
+    src/video/program_output.cpp
+    src/video/program_output.h
+    src/video/virtual_camera.h
 
     src/effects/BuiltinEffects.cpp
     src/effects/BuiltinEffects.h
@@ -136,23 +141,30 @@ set(ATEMFX_SOURCES
     src/effects/FmRasterEffect.cpp
     src/effects/SubpixelEffect.cpp
     src/effects/ShutterEffect.cpp
+    src/effects/FrameDelayEffect.cpp
     src/effects/CrtEffect.cpp
+    src/effects/VhsEffect.cpp
     src/effects/RgbSplitEffect.cpp
     src/effects/ShaderEffect.cpp
     src/effects/ShaderEffect.h
 
     src/tracking/framing.cpp
     src/tracking/framing.h
+    src/tracking/source_mapping.cpp
+    src/tracking/source_mapping.h
     src/tracking/Tracker.h
     src/tracking/TrackingSnapshot.h
 
     src/ui/EffectsPanel.cpp
     src/ui/Fonts.cpp
     src/ui/Fonts.h
+    src/ui/Inspector.h
+    src/ui/InspectorPanel.cpp
     src/ui/OutputPanel.cpp
     src/ui/Panels.h
     src/ui/ParameterWidgets.cpp
     src/ui/PreviewPanel.cpp
+    src/ui/ProgramPanel.cpp
     src/ui/SourcePanel.cpp
     src/ui/StatsPanel.cpp
     src/ui/Theme.cpp
@@ -169,6 +181,7 @@ if(ATEMFX_BACKEND STREQUAL "d3d11")
         src/gpu/d3d11/D3D11Device.h
         src/ui/backend/UiLayerD3D11.cpp
         src/video/win32/CameraCaptureMF.cpp
+        src/video/virtual_camera_stub.cpp
         src/tracking/tracker_stub.cpp)
 else()
     list(APPEND ATEMFX_SOURCES
@@ -178,6 +191,7 @@ else()
         src/gpu/metal/MetalDevice.h
         src/ui/backend/UiLayerMetal.mm
         src/video/mac/CameraCaptureAVF.mm
+        src/video/mac/virtual_camera_mac.mm
         src/tracking/mac/VisionTracker.mm)
 endif()
 
@@ -226,6 +240,7 @@ else()
         src/gpu/metal/MetalBackend.mm
         src/ui/backend/UiLayerMetal.mm
         src/video/mac/CameraCaptureAVF.mm
+        src/video/mac/virtual_camera_mac.mm
         src/tracking/mac/VisionTracker.mm
         "${imgui_SOURCE_DIR}/backends/imgui_impl_osx.mm"
         "${imgui_SOURCE_DIR}/backends/imgui_impl_metal.mm")
@@ -241,6 +256,9 @@ else()
     # Subject detection. A system framework, so it costs no third-party
     # dependency; docs/TRACKING.md covers why Windows has no equivalent yet.
     find_library(VISION_FRAMEWORK Vision REQUIRED)
+    # PROGRAM as a webcam: the client half of a camera extension's sink
+    # stream. docs/VIRTUAL_CAMERA.md covers why this installs nothing.
+    find_library(COREMEDIAIO_FRAMEWORK CoreMediaIO REQUIRED)
 
     set(ATEMFX_MAC_FRAMEWORKS
         ${COCOA_FRAMEWORK}
@@ -253,7 +271,8 @@ else()
         ${AVFOUNDATION_FRAMEWORK}
         ${COREMEDIA_FRAMEWORK}
         ${COREVIDEO_FRAMEWORK}
-        ${VISION_FRAMEWORK})
+        ${VISION_FRAMEWORK}
+        ${COREMEDIAIO_FRAMEWORK})
     target_link_libraries(imgui PUBLIC ${ATEMFX_MAC_FRAMEWORKS})
 
     # An application bundle, not a bare executable. macOS refuses camera access
@@ -340,4 +359,36 @@ if(BUILD_TESTING)
         target_compile_options(framing_test PRIVATE -Wall -Wextra)
     endif()
     add_test(NAME framing COMMAND framing_test)
+
+    add_executable(source_mapping_test
+        tests/source_mapping_test.cpp
+        src/tracking/source_mapping.cpp)
+    target_include_directories(source_mapping_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    if(MSVC)
+        target_compile_options(source_mapping_test PRIVATE /W4 /permissive- /utf-8)
+    else()
+        target_compile_options(source_mapping_test PRIVATE -Wall -Wextra)
+    endif()
+    add_test(NAME source_mapping COMMAND source_mapping_test)
+
+    add_executable(source_health_test
+        tests/source_health_test.cpp
+        src/video/source_health.cpp)
+    add_executable(program_output_test
+        tests/program_output_test.cpp
+        src/video/program_output.cpp
+        src/effects/EffectChain.cpp
+        src/effects/EffectRegistry.cpp
+        src/effects/parameter_automation.cpp
+        src/core/Log.cpp)
+    foreach(target source_health_test program_output_test)
+        target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+        if(MSVC)
+            target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
+        else()
+            target_compile_options(${target} PRIVATE -Wall -Wextra)
+        endif()
+    endforeach()
+    add_test(NAME source_health COMMAND source_health_test)
+    add_test(NAME program_output COMMAND program_output_test)
 endif()

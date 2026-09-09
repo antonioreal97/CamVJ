@@ -55,8 +55,19 @@ struct FramingSettings
     // Subject height as a fraction of the framed height. Bigger is tighter.
     float subjectSize = 0.55f;
 
-    // Space above the subject, as a fraction of the framed height.
+    // Space above the subject, as a fraction of the framed height. This is the
+    // vertical half of the composition: raising it moves the subject down the
+    // frame. Measured from the subject's top because that is what a camera
+    // operator actually keeps constant.
     float headroom = 0.12f;
+
+    // Where the subject sits horizontally, as a fraction of the framed width
+    // away from centre. 0 centres them; positive puts them right of centre,
+    // which means the frame itself moves left. This is the looking room a
+    // presenter facing across the stage needs, and it is the horizontal half
+    // of the composition that `headroom` covers vertically. Without it the
+    // subject was welded to the middle of the outgoing picture.
+    float subjectOffsetX = 0.0f;
 
     // How far the subject may drift, in fractions of the current half extent,
     // before the framing starts moving. This is the single most important
@@ -151,6 +162,7 @@ private:
     bool  compositionValid_   = false;
     float lastSubjectSize_    = 0.0f;
     float lastHeadroom_       = 0.0f;
+    float lastOffsetX_        = 0.0f;
     float lastMaxZoom_        = 0.0f;
     float lastOutputAspect_   = 0.0f;
 

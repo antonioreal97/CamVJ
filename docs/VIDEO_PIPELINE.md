@@ -1,4 +1,4 @@
-# ATEM FX — Video Pipeline
+# CamVJ — Video Pipeline
 
 **M0 is implemented. M1 is in progress.** FX-010 discovery is implemented,
 pending Windows build and hardware validation. The capture/processing/output
@@ -96,6 +96,15 @@ binary with no `Info.plist` carrying `NSCameraUsageDescription`, so the macOS
 build produces `atem_fx.app`. `bin/atem_fx` is a symlink into it.
 
 ### Display output
+
+For LED calibration, select Test Pattern's **LED Mapping (16:9 + 9:16)**.
+Its shader draws a full-canvas 16:9 boundary and the centred 9:16 window used
+by Auto Frame: UV x=0.341796875..0.658203125, y=0..1, or
+x=656.25..1263.75 on the fixed 1920×1080 canvas (607.5×1080). Guides are
+video pixels, so both display and virtual-camera outputs receive them.
+This selection requests a complete chain bypass, including framing, to keep
+calibration geometry intact. PROGRAM's Freeze/Black safety remains downstream.
+See [RUNTIME.md](RUNTIME.md) for the source processing policy.
 
 The processed frame goes to a borderless, full-screen window on a display the
 operator picks. Downstream of the cable — an LED processor, a projector, a

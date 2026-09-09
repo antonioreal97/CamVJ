@@ -7,6 +7,22 @@
 
 namespace atemfx {
 
+void EffectChain::prepare(EffectContext& context)
+{
+    if (context.shaders)
+    {
+        std::string error;
+        if (!context.shaders->shader("crossfade", &error))
+        {
+            ATEMFX_LOG_ERROR("FX/Clean dissolve unavailable, switching will cut: %s", error.c_str());
+        }
+    }
+    if (context.targets)
+    {
+        context.targets->persistent("chain.wet");
+    }
+}
+
 void EffectChain::shutdown()
 {
     for (std::unique_ptr<Effect>& effect : effects_)
@@ -95,7 +111,8 @@ std::size_t EffectChain::enabledCount() const
     return count;
 }
 
-GpuTexture& EffectChain::process(EffectContext& context, GpuTexture& input)
+GpuTexture& EffectChain::process(EffectContext& context, GpuTexture& input, float effectMix,
+                                  bool bypassEffects)
 {
     // Every node keeps its clock while bypassed or hidden in the UI. Advance
     // once before processing so all readers see the same parameter values.
@@ -104,13 +121,65 @@ GpuTexture& EffectChain::process(EffectContext& context, GpuTexture& input)
         effect->parameters().advanceAutomations(context.deltaTime);
     }
 
+    if (bypassEffects)
+    {
+        return input;
+    }
+
+    float mix = effectMix < 0.0f ? 0.0f : (effectMix > 1.0f ? 1.0f : effectMix);
+
+    // Resolved once, before any node runs, so a frame never dissolves half its
+    // chain and cuts the rest. A missing crossfade shader costs the dissolve,
+    // never the picture: the chain falls back to the endpoint it is nearest.
+    GpuTexture*  wet        = nullptr;
+    ShaderHandle mixShader  = nullptr;
+    if (mix > 0.0f && mix < 1.0f)
+    {
+        mixShader = context.shaders ? context.shaders->shader("crossfade") : nullptr;
+        wet       = context.targets ? &context.targets->persistent("chain.wet") : nullptr;
+        if (!mixShader || !wet || !wet->valid() || !context.fullscreen)
+        {
+            mixShader = nullptr;
+            wet       = nullptr;
+            mix       = mix >= 0.5f ? 1.0f : 0.0f;
+        }
+    }
+
+    EffectConstants mixConstants;
+    setFrameConstants(mixConstants, context.width, context.height, context.time, context.deltaTime);
+    setParameterConstant(mixConstants, 0, mix);
+
     GpuTexture* current     = &input;
     std::size_t targetIndex = 0;
 
     for (std::unique_ptr<Effect>& effect : effects_)
     {
-        if (!effect->enabled())
+        const bool visual = effect->role() != EffectRole::Framing;
+        if (!effect->enabled() || (visual && mix <= 0.0f))
         {
+            continue;
+        }
+
+        // Dissolving node: the effect writes its own target and the mix pass
+        // lays it back over the picture that entered, so the ping-pong still
+        // advances by exactly one and never reads a target it is writing.
+        if (visual && wet)
+        {
+            if (!effect->process(context, *current, *wet))
+            {
+                continue;
+            }
+
+            GpuTexture& destination = context.targets->scratch(targetIndex);
+            if (!destination.valid())
+            {
+                break;
+            }
+
+            context.fullscreen->draw(destination, mixShader, wet, mixConstants,
+                                     SamplerFilter::Point, current);
+            current = &destination;
+            ++targetIndex;
             continue;
         }
 

@@ -3,7 +3,7 @@
 ## Por que existe
 
 Em live com ATEM, tratar uma câmera (glitch, pixelate, split) costuma exigir
-um box de FX, um PC com software de VJ, ou um DVE limitado. ATEM FX é um
+um box de FX, um PC com software de VJ, ou um DVE limitado. CamVJ é um
 motor **estreito**: uma entrada, uma cadeia de shaders, uma saída, controlado
 pelo mesmo operador do mixer.
 
@@ -13,7 +13,7 @@ Não é Resolume. Não é editor. Não substitui a ATEM.
 
 1. Câmera entra no mixer.
 2. AUX manda essa câmera para o DeckLink IN.
-3. ATEM FX processa na GPU.
+3. CamVJ processa na GPU.
 4. DeckLink OUT devolve para uma entrada (ex.: INPUT 8).
 5. O operador corta CAM n (clean) vs INPUT 8 (tratado).
 6. **FX Bus / FX TAKE** automatizam “manda o Preview pro FX e dá AUTO”.
@@ -38,8 +38,10 @@ lista nomes, capacidades e conexões de vídeo suportadas. Não mostra sinal
 conectado nem inicia captura/saída. A implementação com SDK Windows ainda
 aguarda validação de build e placa; o preview continua usando a fonte de teste.
 
-Efeitos reais: Passthrough, RGB Split, Pixelate, Mirror, Auto Frame.
-Glitch, Trails e VHS estão na visão original (`docs/VISION.md`), não no binário.
+Efeitos reais: Passthrough, RGB Split, Pixelate, FM Raster, Subpixel,
+Shutter, VHS, CRT, Mirror, Auto Frame. Shutter cobre o que a visão chamava de
+Trails e VHS cobre o look de fita; Glitch continua só na visão
+(`docs/VISION.md`), fora do binário.
 
 ## Experiência que importa
 

@@ -24,6 +24,7 @@ public:
     void        shutdown() override;
     GpuTexture* render(EffectContext& context) override;
     std::string status() const override;
+    bool        bypassEffects() const override;
 
 private:
     // Held by the pool, not by this class: a source needs a target that

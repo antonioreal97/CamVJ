@@ -12,6 +12,8 @@ void registerBuiltinEffects(EffectRegistry& registry)
     registry.add(&createFmRasterEffect);
     registry.add(&createSubpixelEffect);
     registry.add(&createShutterEffect);
+    registry.add(&createFrameDelayEffect);
+    registry.add(&createVhsEffect);
     registry.add(&createCrtEffect);
     registry.add(&createMirrorEffect);
     registry.add(&createAutoFrameEffect);

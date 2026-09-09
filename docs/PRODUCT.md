@@ -1,7 +1,8 @@
-# ATEM FX — Product
+# CamVJ — Product
 
-**Status: V1 is the product goal. M0 is the working video pipeline. M1 has
-optional Windows discovery code awaiting Windows validation.**
+**Status: V1 is the product goal. M0 is the working video pipeline, extended
+since with camera inputs, subject tracking, display output and PROGRAM safety.
+M1 has optional Windows discovery code awaiting Windows validation.**
 
 ---
 
@@ -13,7 +14,7 @@ shader effects, and returned to a spare ATEM input as a second, treated version
 of the same camera.
 
 ```text
-CAMERA → ATEM AUX → DeckLink IN → ATEM FX → DeckLink OUT → ATEM INPUT 8
+CAMERA → ATEM AUX → DeckLink IN → CamVJ → DeckLink OUT → ATEM INPUT 8
 ```
 
 The operator then cuts between `CAM 3` (clean) and `INPUT 8` (treated) like any
@@ -25,18 +26,35 @@ production work (M1 and M4). See [VIDEO_PIPELINE.md](VIDEO_PIPELINE.md) and
 
 ---
 
-## What it is today (M0)
+## What it is today (M0 and the extensions on top of it)
 
 A GPU engine with two backends (Metal on macOS, Direct3D 11 on Windows) that:
 
-- generates a 1920×1080 test pattern on the GPU;
-- runs a linear chain of four effects (Passthrough, RGB Split, Pixelate,
-  Mirror);
-- previews the result in Dear ImGui, or dumps a PPM in `--headless`;
+- takes its picture from a GPU test pattern (colour bars, plasma, grid, and a
+  static LED-mapping chart) or from any camera the operating system reports,
+  both behind `VideoSource`;
+- runs a linear chain of eleven built-in effects — `auto_frame`,
+  `passthrough`, `rgb_split`, `pixelate`, `fm_raster`, `subpixel`, `shutter`,
+  `frame_delay`, `mirror`, `vhs`, `crt` — each with an HLSL and an MSL shader,
+  and with optional loop automation on every parameter;
+- keeps a tracked subject framed (macOS Vision detector; Windows runs the same
+  effect on manual controls);
+- drives PROGRAM through four operator states — FX, Clean, Freeze, Black —
+  with a latched Freeze on input loss ([RUNTIME.md](RUNTIME.md#program-safety));
+- sends that PROGRAM picture to a display as a borderless full-screen signal,
+  and on macOS into an installed camera extension so calls see it as a webcam
+  ([VIRTUAL_CAMERA.md](VIRTUAL_CAMERA.md));
+- previews source, chain and PROGRAM in Dear ImGui, or dumps a PPM in
+  `--headless`;
 - reports CPU and GPU frame time against a 16.68 ms budget.
 
-macOS is the development and demonstration target. Windows is the production
-platform: it is the only one with DeckLink and ATEM SDK support.
+**The show this is built for runs on macOS**, so the tracking and output path
+above is production there. Windows remains the production platform for the
+round-trip in the diagram: it is the only one with DeckLink and ATEM SDK
+support, and its DeckLink code is written but not yet compiled.
+
+What is still missing for V1: SDI capture and playback (M1), presets (M3) and
+ATEM control (M4). There is no MIDI and no audio (M5).
 
 ---
 
@@ -77,7 +95,7 @@ editing, eight simultaneous cameras, blend modes, LUTs, OSC, Stream Deck.
 
 ## V1 is done when
 
-An operator can route a camera through ATEM FX and back into the switcher, at
+An operator can route a camera through CamVJ and back into the switcher, at
 1080p59.94, apply and adjust effects live, recall presets, and press `FX TAKE`
 — with stable Program/Preview reporting and no dropped frames.
 

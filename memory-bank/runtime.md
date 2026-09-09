@@ -30,8 +30,8 @@ FrameTiming::reset
 ```
 
 Default chain, nesta ordem: auto_frame on, passthrough off, rgb_split off,
-pixelate off, fm_raster off, subpixel off, shutter off, mirror off, crt off.
-`--enable a,b,c` só muda o enabled desses nove.
+pixelate off, fm_raster off, subpixel off, shutter off, frame_delay off,
+mirror off, vhs off, crt off. `--enable a,b,c` só muda o enabled desses onze.
 
 ## Frame
 
@@ -54,8 +54,14 @@ Headless: `for` N frames (default 300), `reportTimings`, `--dump` via
 
 ## UI
 
-Header | Source 380×200 | Effects | Preview SOURCE|PROGRAM | Stats 210 px.
-Não é dock. ImGui OSX+Metal ou Win32+DX11.
+Header | Program | Source | Output | Effects | Preview [SOURCE|FX] | PROGRAM |
+Inspector embaixo do preview. Não é dock. ImGui OSX+Metal ou Win32+DX11.
+
+Monitor da esquerda é barramento: `SOURCE` (pré-cadeia, overlays e Pick) ou
+`FX` (`chainPreview`, a imagem da cadeia antes da política de PROGRAM). O
+painel embaixo do preview é a faixa de stats por padrão e os parâmetros do
+efeito selecionado quando há um — em até quatro colunas, no máximo 45% do
+corpo. `ui::inspectedEffect()` decide (`src/ui/Inspector.h`).
 
 ## Donos
 

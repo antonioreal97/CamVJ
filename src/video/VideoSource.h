@@ -7,6 +7,8 @@
 
 #include "effects/EffectParameters.h"
 #include "gpu/Rhi.h"
+#include "tracking/source_mapping.h"
+#include "video/source_health.h"
 
 namespace atemfx {
 
@@ -18,21 +20,6 @@ struct VideoSourceDescriptor
     std::string id;           // stable, usable in a preset: "camera:0x8020000005ac8600"
     std::string displayName;  // "FaceTime HD Camera"
     std::string category;     // "Internal", "Built-in", "USB", "Continuity", "SDI"
-};
-
-// Where the source's own image landed on the canvas.
-//
-// The canvas is always 1920x1080; a source that is not that shape is fitted
-// into it, and a self-view camera may be mirrored. Anything working in the
-// source's coordinates — tracking is the only such consumer today — has to
-// know that transform to say where the subject is on the canvas. Identity for
-// a source that fills the canvas exactly, which is every SDI input.
-struct SourceMapping
-{
-    // Canvas to source, matching source_blit: source = (canvas - 0.5) * scale + 0.5.
-    float scaleX   = 1.0f;
-    float scaleY   = 1.0f;
-    bool  mirrored = false;
 };
 
 // Frames as capture handed them over: 8-bit BGRA, valid only for the duration
@@ -69,6 +56,10 @@ public:
     // picture.
     virtual std::string status() const = 0;
 
+    // Render-thread snapshot, refreshed by render() even without a picture.
+    // GPU-generated sources have no external capture signal to time.
+    virtual SourceHealth health() const { return {}; }
+
     // Taps the frames this source receives in system memory, for control-plane
     // consumers that cannot read the GPU. Sources with no CPU frames — the
     // test pattern is generated on the GPU — ignore it, and tracking simply
@@ -81,6 +72,10 @@ public:
 
     // Identity unless the source had to be fitted or mirrored into the canvas.
     virtual SourceMapping mapping() const { return {}; }
+
+    // Calibration geometry must reach PROGRAM at its native canvas size.
+    // PROGRAM's Freeze/Black policy still applies after this chain bypass.
+    virtual bool bypassEffects() const { return false; }
 
     const VideoSourceDescriptor& descriptor() const { return descriptor_; }
 

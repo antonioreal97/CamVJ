@@ -10,6 +10,12 @@
 
 namespace atemfx {
 
+enum class EffectRole
+{
+    Visual,
+    Framing,
+};
+
 // Everything an effect is allowed to see, snapshotted once per frame.
 //
 // Effects never reach for global state and never name a graphics API. When
@@ -67,6 +73,10 @@ public:
                          GpuTexture&       destination) = 0;
 
     virtual void shutdown() = 0;
+
+    // Clean output retains geometric framing without naming individual
+    // effects in the chain or changing their saved enabled state.
+    virtual EffectRole role() const { return EffectRole::Visual; }
 
     const EffectDescriptor& descriptor() const { return descriptor_; }
 

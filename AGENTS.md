@@ -1,6 +1,6 @@
-# ATEM FX — Engineering Rules
+# CamVJ — Engineering Rules
 
-ATEM FX is a real-time video effects engine for live production with Blackmagic
+CamVJ is a real-time video effects engine for live production with Blackmagic
 ATEM switchers.
 
 Primary target: **1920x1080, 59.94 fps, zero dropped frames.**
@@ -30,7 +30,7 @@ when the architecture or milestone status changes.
 | Shaders       | HLSL (SM 5.0) / MSL                     | yes                    |
 | UI            | Dear ImGui                              | yes (only third-party) |
 | Logs          | spdlog                                  | **planned** — `src/core/Log.cpp` is a printf wrapper with spdlog-shaped macros |
-| Tests         | Standalone C++ checks / Catch2 planned   | parameter automation checks via CTest; `--headless` remains the rendering gate |
+| Tests         | Standalone C++ checks / Catch2 planned   | portable checks via CTest (automation, framing, source mapping, source health, program output); `--headless` remains the rendering gate |
 | Config        | JSON                                    | **planned** (M3 presets) |
 | SDI           | Blackmagic DeckLink SDK (M1+)           | optional Windows discovery; capture/playback **planned** |
 | ATEM control  | Blackmagic ATEM SDK (M4+)               | **planned**            |
@@ -149,21 +149,27 @@ Do not create `main.cpp` with 5000 lines. Follow the tree in
 ## Learned User Preferences
 
 - Chat in Portuguese (Brazil). Keep `docs/` and `AGENTS.md` in English; `memory-bank/` and `README.md` in PT-BR.
-- Tracking exists to put a walking presenter on LED walls: PROGRAM is the picture for the panel and must keep the subject centered, with a visible crop preview.
+- Tracking exists to put a walking presenter on LED walls: PROGRAM is the picture for the panel and must keep the chosen subject centered, with a visible crop preview. The operator picks the target on SOURCE (box, list, empty click, or drag); after the first Pick the lock does not auto-switch people.
 - LED walls are 16:9 landscape or 9:16 portrait. Keep the engine canvas at 1920×1080 and letterbox 9:16 rather than switching project resolution.
-- Auto Frame sliders must visibly retarget the crop; the dead zone is for detector jitter, not operator changes. Landscape 16:9 must still follow (punch in) so PROGRAM is not identical to SOURCE.
+- Auto Frame sliders must visibly retarget the crop; the dead zone is for detector jitter, not operator changes. Composition is `Subject Size` + `Headroom` (vertical) + `Offset X` (horizontal looking room); there is no Offset Y because it would fight Headroom over the same axis.
+- A rule separates parameters (never above the first in a column), and both height passes - `parameterBlockHeight()` in UiLayer and `separatorHeight()` in InspectorPanel - must count it or the last control is clipped.
+- A parameter row is name, then a mono `DragFloat` value (drag for fine steps, Ctrl-click to type), then the loop glyph; the slider underneath carries position plus a tick at the default and takes `ImGuiSliderFlags_NoInput`. Booleans are one line with the checkbox in the value slot. Decimals follow the range, not a fixed `%.3f`.
+- The alignment grid (thirds + centre cross) is preview-only and drawn on the UI's own draw list, never by a shader or a chain node, so it cannot reach the output surface or the webcam. It shows only while a framing node's parameters are open (`ui::adjustingFraming()`), with a `Grid` checkbox in that panel's header, and inside the framing rectangle on SOURCE. It is deliberately not an effect parameter: a parameter that changes no pixel would be a lie in the first preset that saved one. Landscape 16:9 must still follow (punch in) so PROGRAM is not identical to SOURCE.
 - Visible product name is `CamVJ` (mixed case). Theme lives in `src/ui/Theme.*`. Tungsten (`#FF9B3D`) only for the locked subject and the LIVE tally. SOURCE is Split Cyan, PROGRAM is Split Magenta. Studio Black background. No gradient, shadow, or glow. Fixed layout, not dockable.
+- Sidebar sections (SOURCE, OUTPUT, EFFECTS) collapse and expand on section-title click so the operator UI stays dense without docking. The left column itself can shrink to a 40 px rail of stacked titles (header chevron); clicking a title reopens the column and that section. PROGRAM modes stay in the column — two clicks while the rail is closed, never moved to the header. Effect parameters are not in the sidebar: clicking an effect row opens them in the wide panel under the preview, which otherwise shows the stats strip. Closing that panel, folding EFFECTS, or opening SOURCE/OUTPUT returns it to the stats.
 
 ## Learned Workspace Facts
 
-- macOS Vision is the production person detector for tracking; the Windows detector is deferred and does not block this feature.
-- There is no video output on macOS (no DeckLink playback). Routing the treated picture to ATEM or Resolume is unsolved and unscoped.
+- macOS Vision is the production person detector for tracking; the Windows detector is deferred and Pick subject is hidden there. Vision auto-selects only until the first Pick; lost lock holds framing until a new Pick, and a camera change clears the lock.
+- There is no video output on macOS (no DeckLink playback). ATEM USB-C is one UVC webcam (typically Program), not per-input ISO live feeds; multi-camera FX is AUX→DeckLink (M1/M4). Routing the treated picture back to ATEM or Resolume is unsolved and unscoped.
 - Default chain: `auto_frame` first and enabled, then passthrough / rgb_split / pixelate / fm_raster / subpixel / shutter / mirror / crt off, with Follow Subject on.
-- Subpixel draws luma-gated RGB sprites inside each cell. A neighbourhood gather missed the 1080p60 budget (~16–82 ms); the shipped pass is ~3 ms on M4.
-- Shutter keeps the last output in `TargetPool::persistent()` and samples it as t1. That optional history argument on `FullscreenPass::draw` is still one primitive, not the M2 graph.
-- Preview is split SOURCE (pre-chain camera plus yellow subject and cyan crop overlays) and PROGRAM (chain output; 9:16 UV-crops the centre strip).
-- 9:16 output is a centred letterbox strip on the 1920×1080 canvas; the strip stays fixed so Resolume can crop a static mapping.
+- Subpixel draws luma-gated RGB sprites inside each cell (~3 ms on M4 after a neighbourhood gather missed 1080p60). Shutter keeps the last output in `TargetPool::persistent()` and samples it as t1; that optional history on `FullscreenPass::draw` is still one primitive, not the M2 graph.
+- Preview is split. The right monitor is PROGRAM (what the output receives; 9:16 UV-crops the centre strip). The left monitor is a bus with two positions: SOURCE (pre-chain camera plus Tungsten subject and cyan crop overlays, and the subject picker) and FX (`chainPreview` — the chain's own image, captured before `ProgramOutput` can hold or replace it, so a look can be built and watched behind Freeze or Black before it is taken). A live subject pick forces the left monitor back to SOURCE. 9:16 output is a centred letterbox strip on the 1920×1080 canvas so Resolume can crop a static mapping.
 - Only camera input feeds the tracker. Test Pattern has no CPU BGRA and reports `no frames from this input`.
+- PROGRAM has four operator states in one control (FX / Clean / Freeze / Black), drawn in its own unfoldable panel at the top of the left column, above SOURCE, and available under Operation lock. `Clean` keeps `EffectRole::Framing` — it removes the look, never the shot or the 9:16 window. FX and Clean are the ends of a dissolve, not switch positions: `ProgramTransition` ramps `effectMix` over 0.35 s (eased), and between the ends each visual node renders into `chain.wet` and the `crossfade` shader lays it back over its own input. Framing is never mixed, the ends pay for no mix pass, Freeze and Black hold the ramp, and a missing `crossfade` shader falls back to the nearest end rather than dropping a frame. Freeze and Black keep capture, tracking, the chain and the output surface running. Input loss latches Freeze and never auto-selects an input (test pattern is deliberate, never a wall fallback); a returning camera does not take itself live, and loss does not override operator Black. See `docs/RUNTIME.md` §PROGRAM safety.
 - Framing lives in `src/tracking/framing.cpp` with CTest in `tests/framing_test.cpp`. Auto Frame packs the source crop plus output window into the shader without widening `EffectConstants`.
+- Fit (0–2) is source aspect fit into the fixed 1920×1080 canvas — Fit letterbox / Fill crop / Stretch — not zoom or tracking; subject boxes follow the same fit, and matching camera/canvas aspects make the three modes look identical.
 - Development camera is a Sony ILME-FX30 in USB Streaming (UVC 1080p30). macOS discovery must include `ExternalUnknown`; session presets often claim 1080p then deliver no frames — pick 1920×1080 from the device format list. Camera hotplug is AVFoundation notifications polled between frames, not DeckLink.
-- The binary stays `atem_fx` and the bundle id `fx.atem.engine` so macOS camera permission is not invalidated. Brand assets and rules live in `assets/files/IDENTIDADE.md`.
+- The binary stays `atem_fx` and the bundle id `fx.atem.engine` so macOS camera permission is not invalidated. Dock icon is `assets/macos/CamVJ.icns` from `assets/files/camvj-icon-1024.png`. Brand rules live in `assets/files/IDENTIDADE.md`.
+- PROGRAM as a webcam is a client of an already installed camera extension (OBS's), never one we install: an unsigned build cannot ship a system extension, so `src/video/mac/virtual_camera_mac.mm` pushes into that extension's CoreMediaIO sink stream and call applications list the device under OBS's name. 1920x1080 BGRA, one sender at a time, bounded by pool and queue so a slow consumer costs dropped frames and never a stall. See `docs/VIRTUAL_CAMERA.md`.
+- Operator packages: `scripts/package_macos.sh` → `dist/CamVJ-<ver>-macos.dmg` ships first (unsigned). Windows ZIP via `scripts/package_windows.ps1` is planned and not shipped yet.

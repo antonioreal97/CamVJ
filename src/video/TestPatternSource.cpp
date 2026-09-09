@@ -21,7 +21,8 @@ TestPatternSource::TestPatternSource()
 
 bool TestPatternSource::initialize(EffectContext& context, std::string& error)
 {
-    parameters_.add(Parameter::makeInt("pattern", "Pattern", 0, 0, 2));
+    parameters_.add(Parameter::makeChoice("pattern", "Pattern", 0,
+        {"Colour Bars", "Plasma", "Grid", "LED Mapping (16:9 + 9:16)"}));
     parameters_.add(Parameter::makeFloat("speed", "Speed", 1.0f, 0.0f, 4.0f));
     parameters_.add(Parameter::makeBool("markers", "Motion Markers", true));
 
@@ -66,7 +67,14 @@ GpuTexture* TestPatternSource::render(EffectContext& context)
 
 std::string TestPatternSource::status() const
 {
-    return "internal generator";
+    return bypassEffects()
+        ? "LED mapping: 16:9 + centred 9:16. Auto Frame and FX bypassed; static pattern."
+        : "internal generator";
+}
+
+bool TestPatternSource::bypassEffects() const
+{
+    return parameters_.valueOr("pattern", 0.0f) == 3.0f;
 }
 
 } // namespace atemfx

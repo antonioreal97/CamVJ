@@ -97,7 +97,10 @@ void printUsage()
         "  --no-vsync          present without waiting for the display\n"
         "  --enable a,b,c      start with exactly these effects enabled\n"
         "  --source ID         start on this video input (see --list-sources)\n"
+        "  --pattern NAME      test pattern: bars, plasma, grid or led-mapping\n"
         "  --output ID         send the processed frame to this display\n"
+        "  --webcam            send PROGRAM as OBS Virtual Camera (macOS)\n"
+        "  --program MODE      start PROGRAM in fx, clean, freeze or black\n"
         "  --list-sources      list the available video inputs and exit\n"
         "  --list-displays     list the available displays and exit\n"
         "  --check-shaders     compile every shader and exit (opens no device)\n"
@@ -147,10 +150,44 @@ bool parseArguments(int argc, char** argv, CommandLineOptions& command, bool& sh
             hasRenderOptions = true;
             options.outputDisplayId = argv[++i];
         }
+        else if (argument == "--pattern" && i + 1 < argc)
+        {
+            hasRenderOptions = true;
+            const std::string pattern = argv[++i];
+            if (pattern == "bars") options.testPattern = 0;
+            else if (pattern == "plasma") options.testPattern = 1;
+            else if (pattern == "grid") options.testPattern = 2;
+            else if (pattern == "led-mapping") options.testPattern = 3;
+            else
+            {
+                std::fprintf(stderr, "Invalid pattern: %s (use bars, plasma, grid or led-mapping)\n",
+                              pattern.c_str());
+                return false;
+            }
+        }
         else if (argument == "--headless")
         {
             hasRenderOptions = true;
             options.headless = true;
+        }
+        else if (argument == "--webcam")
+        {
+            hasRenderOptions = true;
+            options.webcam = true;
+        }
+        else if (argument == "--program" && i + 1 < argc)
+        {
+            hasRenderOptions = true;
+            const std::string mode = argv[++i];
+            if (mode == "fx") options.programMode = atemfx::ProgramMode::Effects;
+            else if (mode == "clean") options.programMode = atemfx::ProgramMode::Clean;
+            else if (mode == "freeze") options.programMode = atemfx::ProgramMode::Freeze;
+            else if (mode == "black") options.programMode = atemfx::ProgramMode::Black;
+            else
+            {
+                std::fprintf(stderr, "Invalid PROGRAM mode: %s (use fx, clean, freeze or black)\n", mode.c_str());
+                return false;
+            }
         }
         else if (argument == "--no-vsync")
         {
@@ -205,6 +242,17 @@ bool parseArguments(int argc, char** argv, CommandLineOptions& command, bool& sh
     if (listCommands > 0 && hasRenderOptions)
     {
         std::fprintf(stderr, "A --list- option cannot be combined with rendering options.\n");
+        return false;
+    }
+    if (options.checkShaders && options.webcam)
+    {
+        std::fprintf(stderr, "--webcam cannot be combined with --check-shaders.\n");
+        return false;
+    }
+    if (options.testPattern >= 0 && !options.sourceId.empty() &&
+        options.sourceId != atemfx::kTestPatternSourceId)
+    {
+        std::fprintf(stderr, "--pattern requires the Test Pattern input.\n");
         return false;
     }
     return true;

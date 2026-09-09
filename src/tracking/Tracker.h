@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "tracking/TrackingSnapshot.h"
 
@@ -47,6 +48,24 @@ public:
     // has finished. Coordinates are in the captured image's own normalized
     // space, origin top left; App maps them onto the canvas.
     virtual bool latest(TrackingSnapshot& snapshot) const = 0;
+
+    // Operator lock. The rectangle is in the captured image's normalized
+    // space, origin top left. After this the tracker follows that region and
+    // does not auto-pick another person if the lock is lost.
+    virtual void lock(float centerX, float centerY, float width, float height) = 0;
+
+    // Drops the operator lock and returns to auto-choosing. Called when the
+    // input changes: a box on one camera is meaningless on the next.
+    virtual void unlock() = 0;
+
+    // When true the worker also publishes every person it sees, so Pick mode
+    // can draw the list. Off outside Pick: after a lock there is no reason to
+    // keep running the human detector.
+    virtual void setEnumerateCandidates(bool enable) = 0;
+
+    // Capture-space person boxes from the last cycle that enumerated. Empty
+    // when enumeration is off. App maps them onto the canvas for the UI.
+    virtual void candidates(std::vector<TrackingCandidate>& out) const = 0;
 
     // One line for the UI: what the tracker is doing, or why it is not.
     virtual std::string status() const = 0;

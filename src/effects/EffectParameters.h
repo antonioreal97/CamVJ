@@ -40,6 +40,10 @@ struct Parameter
     float maxValue     = 1.0f;
     ParameterAutomation automation;
 
+    // Optional names for a zero-based integer selection. The value stays a
+    // scalar, so shader packing and automation use the same contract.
+    std::vector<std::string> choices;
+
     static Parameter makeFloat(std::string id, std::string label,
                                float defaultValue, float minValue, float maxValue)
     {
@@ -83,6 +87,16 @@ struct Parameter
         p.minValue     = 0.0f;
         p.maxValue     = 1.0f;
         p.automation.waveform = AutomationWaveform::Square;
+        return p;
+    }
+
+    static Parameter makeChoice(std::string id, std::string label,
+                                int defaultValue, std::vector<std::string> choices)
+    {
+        const int maxValue = choices.empty() ? 0 : static_cast<int>(choices.size()) - 1;
+        Parameter p = makeInt(std::move(id), std::move(label),
+                              std::clamp(defaultValue, 0, maxValue), 0, maxValue);
+        p.choices = std::move(choices);
         return p;
     }
 

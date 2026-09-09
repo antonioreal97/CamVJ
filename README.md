@@ -10,7 +10,7 @@ volta a um switcher Blackmagic ATEM.
 
 **Estado: M0 feito; M1 em andamento.** Núcleo GPU com dois backends atrás de
 uma interface comum — **Metal (macOS)** e **Direct3D 11 (Windows)** — em
-1920×1080, quatro efeitos, UI ImGui, self-test headless. As entradas de vídeo
+1920×1080, onze efeitos, UI ImGui, self-test headless. As entradas de vídeo
 ficam atrás de `VideoSource`: padrão de teste, webcam interna e câmeras USB
 (no macOS 14+ também iPhone via Continuity). É essa a interface que o DeckLink
 vai implementar no M1.
@@ -67,8 +67,12 @@ precisa ficar ao lado do `CamVJ.exe`.
 Quem gera o DMG a partir do código (Mac, após build Release):
 
 ```bash
-./scripts/package_macos.sh -v 1.0.0
+./scripts/package_macos.sh
 ```
+
+A versão sai do `project(... VERSION ...)` do `CMakeLists.txt` — hoje
+**1.0.0**, a mesma da tag `v1.0.0` e do release. `-v` só serve para gerar um
+pacote fora dessa numeração.
 
 O script Windows (`scripts/package_windows.ps1`) já existe; falta só rodar o
 build Release numa máquina com Visual Studio. Detalhes em
@@ -77,25 +81,58 @@ build Release numa máquina com Visual Studio. Detalhes em
 ## O que o M0 faz
 
 ```text
-TestPatternSource (GPU) → EffectChain → Preview ImGui  ou  dump PPM
-                                      → tela de saída (HDMI/DisplayPort)
+TestPatternSource (GPU) → EffectChain → ProgramOutput → Preview ImGui ou dump PPM
+                          câmera                      → tela de saída (HDMI/DP)
 ```
 
 Efeitos: `passthrough`, `rgb_split`, `pixelate`, `fm_raster`, `subpixel`,
-`shutter`, `crt`, `mirror` e `auto_frame` (HLSL + MSL).
+`shutter`, `frame_delay`, `vhs`, `crt`, `mirror` e `auto_frame` (HLSL + MSL).
 Processamento sempre em 1920×1080, independente do tamanho da janela.
 Orçamento: 16,68 ms/frame (59,94 fps). A taxa não é travada no display.
 
 CLI: `--headless`, `--frames N`, `--dump PATH`, `--enable a,b,c`,
-`--no-vsync`, `--source ID`, `--list-sources`, `--output ID`,
-`--list-displays`, `--list-decklink`, `--help`.
+`--no-vsync`, `--source ID`, `--pattern NAME`, `--list-sources`, `--output ID`,
+`--list-displays`, `--webcam`, `--program MODE`, `--list-decklink`, `--help`.
 Detalhes em [docs/BUILD.md](docs/BUILD.md).
+
+## Pattern para mapear painéis de LED
+
+Em **SOURCE**, escolha **Test Pattern** e, em **Pattern**, selecione
+**LED Mapping (16:9 + 9:16)**. Em **OUTPUT**, escolha a tela que alimenta o
+processador de LED. Com PROGRAM em **FX** ou **Clean**, as guias fazem parte
+da imagem enviada à tela e à webcam virtual.
+
+O contorno ciano delimita o **16:9 inteiro (1920×1080)**; o magenta delimita
+o **9:16 centralizado**, na mesma posição usada pelo Auto Frame em retrato.
+A grade quadrada, o centro e as marcas de borda ajudam a conferir proporção,
+alinhamento e cortes. O canvas continua em 1920×1080: a faixa 9:16 mede
+607,5×1080, entre x=656,25 e x=1263,75.
+
+Esse padrão é estático e ignora os efeitos e o Auto Frame para
+preservar as medidas. **Freeze** e **Black** continuam valendo. Ao voltar a
+Colour Bars, Plasma, Grid ou câmera, a cadeia retoma os ajustes existentes.
+Speed e Motion Markers se aplicam aos três padrões animados.
+
+```bash
+./build/bin/atem_fx --headless --pattern led-mapping --frames 200 --dump led-mapping.ppm
+```
 
 ## Efeitos em loop
 
-Cada parâmetro de cada nó de efeito pode ter seu próprio loop. Em **EFFECTS**,
-selecione um efeito e ative **Loop** no parâmetro que deseja animar. Abra
-**Loop settings** para escolher a onda em **Shape**, os valores mínimo e
+Cada linha de parâmetro tem o nome à esquerda, o **valor** à direita e a
+**trilha** embaixo. O valor não é só um número: arraste em cima dele para
+passos finos, ou dê **Ctrl-clique** para digitar um valor exato — a trilha
+sozinha gasta um pixel por 1/250 da faixa, o que não serve para calibrar. Na
+trilha há um **risco fino no valor padrão**, para você ver o quanto se afastou;
+**clique direito** em qualquer um dos dois volta ao padrão. Uma linha separa
+um parâmetro do seguinte, para não restar dúvida sobre qual trilha pertence a
+qual nome.
+
+Cada parâmetro pode ter seu próprio loop. Em **EFFECTS**, clique no efeito —
+os parâmetros dele abrem no painel largo embaixo do preview — e clique no
+**botão de onda** ao lado do valor do parâmetro que deseja animar. Ele acende
+em ciano enquanto o loop roda, e o valor passa a mostrar o que o loop está
+fazendo. Abra **Loop settings** para escolher a onda em **Shape**, os valores mínimo e
 máximo, a duração do ciclo em segundos e a fase em **Phase (%)**. A curva
 mostra o movimento configurado.
 
@@ -130,13 +167,27 @@ Os controles são de operador de câmera, não de algoritmo:
 | Controle | O que faz |
 | -------- | --------- |
 | Subject Size | Quanto da altura do quadro a pessoa ocupa. Maior é mais fechado. |
-| Headroom | Espaço acima da cabeça. |
+| Headroom | Espaço acima da cabeça. É o ajuste vertical: aumentar desce a pessoa no quadro. |
+| Offset X | Onde a pessoa fica na horizontal, em frações da largura do quadro. Positivo joga ela para a direita do centro — o espaço de olhar de quem fala virado para o palco. |
 | Dead Zone | Quanto ela pode andar antes do quadro se mexer. **É o que impede a imagem de tremer.** |
 | Smoothing (s) | Tempo para o quadro alcançar o alvo. |
 | Max Speed | Velocidade máxima do movimento. |
 | Hold (s) | Quanto tempo segura o quadro quando perde a pessoa. |
 | Return (s) | Tempo para abrir de volta ao quadro cheio depois disso. |
 | Max Zoom | Limite de aproximação. |
+
+### Grade de alinhamento
+
+Enquanto os parâmetros do **Auto Frame** estão abertos, os monitores mostram
+uma grade de terços com uma cruz no centro, para você calibrar o enquadramento
+sem chutar. No SOURCE ela é desenhada **dentro do retângulo do recorte** — o
+que você está compondo é a imagem que sai, não o sensor inteiro — e no PROGRAM
+sobre a imagem.
+
+A grade **nunca vai para a saída**. Ela é desenhada pela interface por cima do
+preview; a textura que vai para o telão e para a webcam virtual é a que a
+cadeia produziu, sem grade nenhuma. Ela some sozinha quando você fecha os
+parâmetros, e o checkbox **Grid** no cabeçalho do painel desliga antes disso.
 
 Perder a pessoa não é emergência: o quadro **segura** por `Hold` segundos —
 alguém que vira de costas não justifica um movimento — e só então abre de
@@ -199,6 +250,82 @@ display, e o sistema operacional o entrega no ritmo dele. Para uma parede de
 LED atrás de um processador isso é normal e é assim que se trabalha. Para
 devolver um sinal limpo à entrada de um ATEM, o caminho continua sendo o M1.
 
+## Segurança da imagem
+
+Num show, a pergunta que importa não é qual efeito está bonito — é **o que
+está no telão agora e como eu tiro isso de lá em um movimento**. O painel
+**PROGRAM**, no topo da coluna esquerda, tem quatro botões:
+
+| Botão      | O que vai para o telão                      |
+| ---------- | ------------------------------------------- |
+| **FX**     | a cadeia completa, como você montou         |
+| **Clean**  | a imagem sem efeitos visuais                |
+| **Freeze** | o último quadro bom, congelado              |
+| **Black**  | preto, com a saída no ar                    |
+
+**Clean não é desligar tudo.** O enquadramento continua: o Auto Frame segue
+recortando e o formato 9:16 continua onde estava. Você tira o *look* sem
+perder o plano e sem mudar o que o processador de LED recebe — que é
+justamente o que se quer quando o efeito não combinou com o momento.
+
+**Freeze e Black não param a máquina.** A câmera continua entrando, o tracking
+continua seguindo e a cadeia continua preparando o próximo plano atrás da
+imagem parada. A saída segue enviando quadro a quadro: o telão vê uma imagem
+**parada**, nunca um sinal morto. Quando você volta para FX ou Clean, já
+entra no plano de agora, não no de trinta segundos atrás.
+
+### Ensaiar o efeito antes de mandar ao ar
+
+O monitor da **direita** é o PROGRAM: exatamente o que vai para o telão. O da
+**esquerda** tem dois botões no topo:
+
+| Botão      | O que aparece                                                |
+| ---------- | ------------------------------------------------------------ |
+| **SOURCE** | a câmera como ela chega, antes da cadeia — é aqui que você escolhe o assunto |
+| **FX**     | a imagem da cadeia: o que o botão **FX** mandaria agora       |
+
+O chevron à esquerda do nome no cabeçalho recolhe a coluna de controles para
+um rail de títulos (PROGRAM, SOURCE, OUTPUT, EFFECTS). Os dois monitores
+ficam maiores. Clique num título para reabrir aquela seção — os modos de
+PROGRAM (FX / Clean / Freeze / Black) voltam a um clique depois disso.
+
+É assim que se monta um look sem ninguém ver: ponha o PROGRAM em **Freeze** ou
+**Black**, deixe o monitor da esquerda em **FX**, monte e ajuste o efeito
+olhando ali, e só então aperte **FX**. Enquanto isso o telão continua na
+imagem parada ou no preto.
+
+Em **Clean** o look é retirado da própria cadeia, então o monitor **FX** mostra
+a mesma imagem limpa e escreve a porcentagem da mistura — não é defeito do
+efeito. Para ensaiar fora do ar, use Freeze ou Black.
+
+Escolher o assunto continua sendo no SOURCE: o monitor volta para SOURCE
+sozinho quando **Pick subject** está ligado, ou quando há gente em quadro e
+ninguém está sendo seguido.
+
+### Quando a câmera cai
+
+Se o sinal some — cabo, bateria, alguém esbarrou no USB — o PROGRAM **segura
+o último quadro bom** e entra em Freeze sozinho. Três regras saem daí:
+
+- **Perder a câmera nunca escolhe uma entrada.** O padrão de teste é uma
+  escolha sua, nunca um plano B automático. Nada coloca aquelas barras no
+  telão por conta própria.
+- **Câmera que volta não sobe sozinha.** Ela reconecta, a barra de status
+  avisa, e o plano só vai ao ar quando você seleciona a entrada e aperta FX ou
+  Clean. Uma câmera que volta no meio da música não entra fria e sem
+  enquadramento.
+- **O que você mandou vale mais.** Se você pôs **Black**, a queda da câmera
+  não muda isso.
+
+Antes do primeiro quadro válido não existe nada para segurar, e aí todo modo
+mostra preto — Freeze não inventa imagem que não tem.
+
+Para abrir o show já no preto, antes de qualquer coisa ir ao ar:
+
+```bash
+./build/bin/atem_fx --output 2 --program black
+```
+
 ## Descoberta DeckLink (Windows)
 
 O build padrão dispensa o SDK. Para habilitar a descoberta, use o SDK
@@ -231,6 +358,7 @@ pendente; não há captura, playback ou monitoramento de conexão/desconexão.
 | [docs/EFFECT_SYSTEM.md](docs/EFFECT_SYSTEM.md) | Como adicionar um efeito |
 | [docs/TRACKING.md](docs/TRACKING.md) | Tracking de pessoa/objeto e enquadramento |
 | [docs/VIDEO_PIPELINE.md](docs/VIDEO_PIPELINE.md) | Pipeline M0 + contrato M1 |
+| [docs/VIRTUAL_CAMERA.md](docs/VIRTUAL_CAMERA.md) | PROGRAM como webcam (`--webcam`, macOS) |
 | [docs/ATEM_INTEGRATION.md](docs/ATEM_INTEGRATION.md) | Design M4 (não implementado) |
 | [docs/PRODUCT.md](docs/PRODUCT.md) | Meta V1 vs o que existe |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones e backlog |

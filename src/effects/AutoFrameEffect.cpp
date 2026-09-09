@@ -22,6 +22,8 @@ constexpr float kPortraitAspect  = 9.0f / 16.0f;
 class AutoFrameEffect final : public ShaderEffect
 {
 public:
+    EffectRole role() const override { return EffectRole::Framing; }
+
     AutoFrameEffect()
         : ShaderEffect({"auto_frame", "Auto Frame", "Framing",
                         "Follows the subject, keeping them framed."},
@@ -32,6 +34,7 @@ public:
         parameters_.add(Parameter::makeBool("portrait", "Portrait (9:16)", false));
         parameters_.add(Parameter::makeFloat("size", "Subject Size", 0.55f, 0.20f, 0.90f));
         parameters_.add(Parameter::makeFloat("headroom", "Headroom", 0.12f, 0.0f, 0.40f));
+        parameters_.add(Parameter::makeFloat("offset_x", "Offset X", 0.0f, -0.40f, 0.40f));
         parameters_.add(Parameter::makeFloat("dead_zone", "Dead Zone", 0.10f, 0.0f, 0.50f));
         parameters_.add(Parameter::makeFloat("smoothing", "Smoothing (s)", 0.60f, 0.05f, 3.0f));
         parameters_.add(Parameter::makeFloat("max_speed", "Max Speed", 0.50f, 0.05f, 2.0f));
@@ -100,6 +103,7 @@ private:
         settings.outputAspect     = outputAspect();
         settings.subjectSize      = parameters_.valueOr("size", 0.55f);
         settings.headroom         = parameters_.valueOr("headroom", 0.12f);
+        settings.subjectOffsetX   = parameters_.valueOr("offset_x", 0.0f);
         settings.deadZone         = parameters_.valueOr("dead_zone", 0.10f);
         settings.smoothingSeconds = parameters_.valueOr("smoothing", 0.60f);
         settings.maxSpeed         = parameters_.valueOr("max_speed", 0.50f);

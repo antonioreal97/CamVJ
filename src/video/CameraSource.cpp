@@ -1,6 +1,7 @@
 #include "video/CameraSource.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 
 #include "core/Log.h"
@@ -22,6 +23,12 @@ constexpr std::size_t kUserParameterCount = 2;
 constexpr std::size_t kSourceWidthSlot    = 2;
 constexpr std::size_t kSourceHeightSlot   = 3;
 constexpr std::size_t kFlipVerticalSlot   = 4;
+
+double sourceClockSeconds()
+{
+    return std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 } // namespace
 
@@ -126,6 +133,8 @@ void CameraSource::onFrame(const CameraFrame& frame)
         return;
     }
 
+    const double arrivalSeconds = sourceClockSeconds();
+
     // Before the copy below, so the tracker sees the frame even when the
     // render thread is behind. It copies only the frames it is ready for.
     if (frameObserver_)
@@ -146,8 +155,8 @@ void CameraSource::onFrame(const CameraFrame& frame)
     pendingHeight_   = frame.height;
     pendingRowBytes_ = frame.rowBytes;
     pendingBottomUp_ = frame.bottomUp;
+    captureMonitor_.recordFrame(arrivalSeconds, hasPending_);
     hasPending_      = true;
-    ++framesReceived_;
 }
 
 GpuTexture* CameraSource::render(EffectContext& context)
@@ -157,6 +166,8 @@ GpuTexture* CameraSource::render(EffectContext& context)
         capture_->poll();
     }
 
+    bool consumedFrame = false;
+    SourceCaptureHealth captureHealth;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (hasPending_)
@@ -169,8 +180,11 @@ GpuTexture* CameraSource::render(EffectContext& context)
             frameRowBytes_ = pendingRowBytes_;
             frameBottomUp_ = pendingBottomUp_;
             hasPending_    = false;
+            consumedFrame  = true;
         }
+        captureHealth = captureMonitor_.snapshot();
     }
+    healthMonitor_.update(captureHealth, consumedFrame, sourceClockSeconds());
 
     if (frameWidth_ == 0 || frameHeight_ == 0 || !target_ || !target_->valid())
     {
@@ -222,15 +236,14 @@ std::string CameraSource::status() const
         }
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (framesReceived_ == 0)
+    const SourceHealth snapshot = health();
+    if (snapshot.signal == SourceSignal::Waiting)
     {
         return "waiting for the first frame";
     }
 
-    return std::to_string(pendingWidth_ != 0 ? pendingWidth_ : frameWidth_) + "x" +
-           std::to_string(pendingHeight_ != 0 ? pendingHeight_ : frameHeight_) + "  ·  " +
-           std::to_string(framesReceived_) + " frames";
+    return std::to_string(frameWidth_) + "x" + std::to_string(frameHeight_) + "  ·  " +
+           std::to_string(snapshot.receivedFrames) + " frames";
 }
 
 } // namespace atemfx

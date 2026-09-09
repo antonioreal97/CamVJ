@@ -16,6 +16,8 @@
 #include "video/FrameTiming.h"
 #include "video/VideoDevices.h"
 #include "video/VideoSource.h"
+#include "video/program_output.h"
+#include "video/virtual_camera.h"
 
 namespace atemfx {
 
@@ -41,10 +43,19 @@ struct AppOptions
     // Video input id from enumerateVideoSources. Empty means the test pattern.
     std::string sourceId;
 
+    // Initial internal pattern; -1 keeps the source's default.
+    int testPattern = -1;
+
     // Display id from enumerateDisplays. Empty means no output: the engine
     // renders to its own window only. Set it and the processed frame goes
     // full screen on that display the moment the application starts.
     std::string outputDisplayId;
+
+    // Send PROGRAM through the installed macOS virtual camera extension.
+    bool webcam = false;
+
+    // Start on a deliberate PROGRAM state, including black before going live.
+    ProgramMode programMode = ProgramMode::Effects;
 
     // Compile every shader in the backend's directory and exit. Opens no
     // device, so it is safe in CI and safe on a machine with no camera
@@ -71,6 +82,8 @@ private:
     bool openOutput(int displayIndex);
     void closeOutput();
     void serviceOutput();
+    void serviceWebcam();
+    int webcamResult() const;
     void startTracking();
     void rescanDevices();
     void updateEffectContext();
@@ -93,6 +106,8 @@ private:
     int                                currentSource_   = -1;
     int                                requestedSource_ = -1;
     bool                               requestDeviceRescan_ = false;
+    bool                               sourceDisconnected_ = false;
+    SourceHealth                       sourceHealth_;
 
     // Program output. Null until an operator picks a display; the window and
     // the surface live and die together, and the surface always goes first
@@ -106,13 +121,32 @@ private:
     bool                           requestDisplayRescan_ = false;
     std::string                    outputStatus_;
 
+    // The worker owns camera transport; PROGRAM only offers a frame. Keep a
+    // stopping output alive until its worker has released the camera.
+    std::unique_ptr<VirtualCameraOutput> webcam_;
+    VirtualCameraStats webcamStats_{VirtualCameraState::Stopped, 0, 0};
+    bool               webcamSupported_ = false;
+    bool               requestWebcamStart_ = false;
+    bool               requestWebcamStop_ = false;
+    std::string        webcamStatus_;
+    // Sticky: --webcam that never started is a failed run even if the
+    // operator later stops asking for it.
+    bool               webcamFailed_ = false;
+
     // Control plane. Runs beside the pipeline on its own thread, reads the
     // frames capture already produced, and can fail or stall without costing
     // a video frame. Null where the platform has no tracker.
     std::unique_ptr<Tracker> tracker_;
     std::string              trackingStatus_;
+    bool                     pickSubjectMode_ = false;
+    std::vector<TrackingCandidate> trackingCandidates_;
+    TrackingLockRequest            requestedLock_;
 
     EffectChain chain_;
+    ProgramOutput programOutput_;
+    ProgramTransition programTransition_;
+    ProgramMode   programMode_ = ProgramMode::Effects;
+    bool          operationLocked_ = true;
     FrameTiming timing_;
     UiLayer     ui_;
 
