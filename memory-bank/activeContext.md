@@ -2,6 +2,15 @@
 
 ## Foco
 
+Pedido 2026-09-09: **CI de proteção** (sem CD). Workflow
+`.github/workflows/ci.yml` no self-hosted macOS ARM64 com Metal: Release
+build, CTest, `--check-shaders`, headless 200 frames. Sem publicação de
+pacotes, sem assinatura, sem Windows neste passo. Docs em
+`docs/BUILD.md` § Continuous integration; ROADMAP atualizado. Branch
+protection em `main` exige o check `ci / macos` (só funciona depois do
+primeiro run e com runner Idle). Próximo passo operacional: registrar o
+runner neste Mac.
+
 Pedido 2026-09-09: **recolher o sidebar** para um rail de títulos. Chevron
 no header (à esquerda do glifo CamVJ) encolhe a coluna de 392 px para
 40 px; PROGRAM / SOURCE / OUTPUT / EFFECTS viram letras empilhadas. Clique

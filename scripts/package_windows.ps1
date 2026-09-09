@@ -5,7 +5,7 @@
 #
 # Usage (from repo root, after a Release build on Windows):
 #   powershell -ExecutionPolicy Bypass -File .\scripts\package_windows.ps1
-#   powershell -ExecutionPolicy Bypass -File .\scripts\package_windows.ps1 -BuildDir build -Version 0.1.0
+#   powershell -ExecutionPolicy Bypass -File .\scripts\package_windows.ps1 -BuildDir build -Version 1.0.0
 #   powershell -ExecutionPolicy Bypass -File .\scripts\package_windows.ps1 -SkipSmoke
 
 [CmdletBinding()]

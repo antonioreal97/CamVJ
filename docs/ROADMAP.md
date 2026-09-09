@@ -226,8 +226,9 @@ pipeline (`AGENTS.md` §4).
   are in `docs/TRACKING.md`.
 - spdlog — call shape in `Log.h` matches; implementation is `printf`.
 - JSON config — no schema, no loader.
-- CI — no `.github/` workflow. The headless gate, `--check-shaders` and CTest
-  all run without a display and are what a workflow would call.
+- CI — macOS self-hosted gate exists (`.github/workflows/ci.yml`: build,
+  CTest, `--check-shaders`, headless 200). Windows CI and package CD are
+  still open; setup notes are in [BUILD.md](BUILD.md#continuous-integration).
 - Packages are unsigned: no Apple Developer ID / notarization, no Windows
   Authenticode. Versioning and the release steps are in
   [BUILD.md](BUILD.md#versioning).

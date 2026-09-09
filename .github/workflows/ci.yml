@@ -1,0 +1,57 @@
+# CamVJ protection gate — macOS self-hosted with a Metal GPU.
+#
+# Required checks (all must pass):
+#   1. Release build
+#   2. CTest (portable logic, no GPU)
+#   3. --check-shaders
+#   4. --headless --frames 200  (needs Metal; hosted runners are not enough)
+#
+# Runner labels: self-hosted, macOS, ARM64
+# See docs/BUILD.md § Continuous integration.
+
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macos
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: |
+          cmake -S . -B build-ci -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: |
+          cmake --build build-ci -j "$(sysctl -n hw.ncpu)"
+
+      - name: CTest
+        run: |
+          ctest --test-dir build-ci --output-on-failure
+
+      - name: Check shaders
+        run: |
+          ./build-ci/bin/atem_fx --check-shaders
+
+      - name: Headless gate
+        run: |
+          ./build-ci/bin/atem_fx --headless --frames 200
+
+      - name: Clean build tree
+        if: always()
+        run: |
+          rm -rf build-ci

@@ -13,6 +13,11 @@ principles live in [ARCHITECTURE.md](ARCHITECTURE.md).
 1. On Windows, set per-monitor DPI awareness so the preview is not scaled
    twice.
 2. Parse CLI, keeping rendering options in `AppOptions` (`src/app/App.h`).
+   `--help` and `--version` are answered inside the parse loop and exit 0
+   before any other argument is read, so neither can be refused for the
+   company it keeps. `--version` prints `CamVJ <version> (<backend>)` from
+   `atemfx::kVersion` (`src/core/Version.h`, stamped by CMake) and
+   `backendName()`, both compile-time constants: it opens no device.
 3. If `--list-decklink` was requested, enumerate and log devices, then exit.
    This path creates no `App`, window, GPU device or UI.
 4. Otherwise: `App app; app.initialize(options); app.run(); app.shutdown();`
@@ -462,7 +467,7 @@ until the next `process()` or shutdown.
 ```text
 src/main.cpp
 src/app/App.h App.cpp
-src/core/Log.h Log.cpp
+src/core/Log.h Log.cpp Version.h
 src/decklink/decklink_discovery.h
 src/decklink/decklink_discovery_win.cpp decklink_discovery_stub.cpp
 src/platform/Window.h Display.h OutputWindow.h

@@ -20,12 +20,12 @@ elseif(APPLE)
     endif()
 else()
     message(FATAL_ERROR
-        "ATEM FX supports Windows (Direct3D 11) and macOS (Metal).\n"
+        "CamVJ supports Windows (Direct3D 11) and macOS (Metal).\n"
         "A Linux backend would need implementations of src/gpu/Rhi.h and "
         "src/platform/Window.h; nothing else would have to change.")
 endif()
 
-message(STATUS "ATEM FX backend: ${ATEMFX_BACKEND}")
+message(STATUS "CamVJ backend: ${ATEMFX_BACKEND}")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -86,7 +86,7 @@ target_include_directories(imgui PUBLIC
     "${imgui_SOURCE_DIR}/backends")
 
 # ---------------------------------------------------------------------------
-# ATEM FX
+# CamVJ
 # ---------------------------------------------------------------------------
 set(ATEMFX_SOURCES
     src/main.cpp
@@ -96,6 +96,7 @@ set(ATEMFX_SOURCES
 
     src/core/Log.cpp
     src/core/Log.h
+    src/core/Version.h
 
     src/platform/Display.h
     src/platform/OutputWindow.h
@@ -206,6 +207,10 @@ include(cmake/decklink.cmake)
 atemfx_configure_decklink(atem_fx)
 
 target_compile_definitions(atem_fx PRIVATE
+    # The single source of truth for the version: everything that reports one
+    # -- --version, the log banner, the UI header, the bundle, the package file
+    # name -- derives from project(AtemFx VERSION ...) above.
+    ATEMFX_VERSION="${PROJECT_VERSION}"
     # Development fallback for locating shaders when running out of the build
     # tree. The post-build copy below covers the normal case.
     ATEMFX_SHADER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/shaders"

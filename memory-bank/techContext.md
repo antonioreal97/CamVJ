@@ -11,9 +11,12 @@
 | UI | Dear ImGui v1.91.9 (FetchContent ou `ATEMFX_IMGUI_DIR`) |
 | Janela | AppKit (pump manual) / Win32 |
 | Log | `src/core/Log.cpp` — printf UTF-8; console Windows e debugger via Unicode |
-| Config | nenhuma (sem JSON) |
-| Testes | self-test CLI + teste C++ portátil de automações via CTest, sem Catch2 |
+| Config | nenhuma (sem JSON); versão vem do `project(AtemFx VERSION ...)` |
+| Testes | self-test CLI + 5 testes C++ portáteis via CTest, sem Catch2 |
 | Discovery | DeckLink SDK externo opcional, somente Windows neste projeto |
+| Webcam | extensão de câmera já instalada (OBS) via CoreMediaIO, só macOS |
+| Empacotamento | `scripts/package_macos.sh` (DMG) e `scripts/package_windows.ps1` (ZIP) |
+| CI | GitHub Actions `.github/workflows/ci.yml` — só macOS self-hosted (`self-hosted`, `macOS`, `ARM64`); build Release + CTest + `--check-shaders` + headless 200; sem publicar pacotes |
 
 Dependência externa do build padrão: ImGui. Discovery Windows pode adicionar
 o SDK DeckLink externo com `ATEMFX_ENABLE_DECKLINK=ON` e
@@ -21,17 +24,34 @@ o SDK DeckLink externo com `ATEMFX_ENABLE_DECKLINK=ON` e
 macOS/build sem SDK usa stub indisponível. CMake fatal em Linux.
 
 Targets: `imgui`, `atem_fx`, `atem_fx_shaders` (copia `shaders/` para
-`$<TARGET_FILE_DIR:atem_fx>/shaders`). Binário: `build/bin/atem_fx`.
+`$<TARGET_FILE_DIR:atem_fx>/shaders`). Binário: `build/bin/atem_fx`; no macOS
+dentro de `build/bin/atem_fx.app` (o bundle é o que dá acesso à câmera).
 Com `BUILD_TESTING=ON` (default), também `parameter_automation_test`,
-registrado no CTest como `parameter_automation`. Nenhuma dependência externa
-adicional; execução com `ctest --test-dir build --output-on-failure`.
+`framing_test`, `source_mapping_test`, `source_health_test` e
+`program_output_test`, registrados no CTest como `parameter_automation`,
+`framing`, `source_mapping`, `source_health` e `program_output`. Nenhuma
+dependência externa adicional; execução com
+`ctest --test-dir build --output-on-failure`.
+
+## Versão
+
+Origem única: `project(AtemFx VERSION 1.0.0)` na linha 3 do `CMakeLists.txt`.
+CMake carimba o binário com `ATEMFX_VERSION`; `src/core/Version.h` publica
+como `atemfx::kVersion`, e dele saem `--version`, o banner do `--help`, o log
+de startup, o banner de timing do headless e o strip cinza do cabeçalho da UI.
+Dela também saem `MACOSX_BUNDLE_BUNDLE_VERSION` /
+`MACOSX_BUNDLE_SHORT_VERSION_STRING` e o número no nome do DMG/ZIP quando
+`-v` / `-Version` não é passado. Build fora deste CMake reporta `0.0.0-dev`. Hoje
+**1.0.0**, igual à tag `v1.0.0` e ao release. Binário (`atem_fx`) e bundle id
+(`fx.atem.engine`) não são versionados e não mudam — bundle id novo invalida a
+permissão de câmera. Passo a passo em `docs/BUILD.md#versioning`.
 
 ## Stack planejada (não linkar agora)
 
 | Área | Tecnologia | Milestone |
 | --- | --- | --- |
 | Log | spdlog (macros já no formato) | quando hardware exigir sinks |
-| Testes | Catch2 | adoção futura; teste de automações já existe sem framework |
+| Testes | Catch2 | adoção futura; os 5 testes atuais já rodam sem framework |
 | Config / presets | JSON | M3 |
 | Captura/saída SDI | DeckLink SDK (discovery já implementado) | M1, Windows |
 | Mixer | ATEM SDK | M4, Windows |
@@ -41,11 +61,18 @@ adicional; execução com `ctest --test-dir build --output-on-failure`.
 ## CLI
 
 ```text
---headless --frames N --dump PATH --enable a,b,c --no-vsync --list-decklink --help
+--headless --frames N --dump PATH --enable a,b,c --no-vsync
+--source ID --pattern NAME --output ID --webcam --program MODE
+--list-sources --list-displays --check-shaders --list-decklink
+--version --help
 ```
 
-Headless sem `--frames` roda 300 frames. `--enable` só liga/desliga os nove
-nós do default chain; não cria tipos extras.
+Headless sem `--frames` roda 300 frames. `--enable` só liga/desliga os onze
+nós do default chain; não cria tipos extras. `--pattern` aceita bars, plasma,
+grid e led-mapping; `--program` aceita fx, clean, freeze e black. `--webcam`
+só existe no macOS (extensão de câmera instalada). `--version` responde antes
+de qualquer parse, como `--help`, e não abre device. `--output` precisa de
+janela e é ignorado em `--headless`.
 
 `--list-decklink` é um comando exclusivo, executado antes de criar `App`,
 GPU ou UI. Não aceita flags de render junto (exit 2). Enumeração bem-sucedida,
@@ -53,6 +80,9 @@ mesmo vazia, retorna 0; indisponibilidade ou erro de COM/driver/enumeração
 retorna 1. Metadados parciais geram avisos. Validação Windows ainda pendente.
 
 ## Shaders em runtime
+
+14 shaders por backend (mais `common` e, no HLSL, `fullscreen`).
+`--check-shaders` compila todos e imprime a contagem.
 
 Ordem de busca: `ATEMFX_SHADER_DIR` → `shaders/` ao lado do exe (até 5
 níveis) → árvore fonte (`ATEMFX_SHADER_SOURCE_DIR`). Hot reload: botão no

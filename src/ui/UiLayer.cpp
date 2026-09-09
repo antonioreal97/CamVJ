@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 
+#include "core/Version.h"
 #include "effects/EffectParameters.h"
 #include "imgui.h"
 #include "ui/Fonts.h"
@@ -182,9 +183,11 @@ void drawHeader(UiFrameState& state, ImVec2 origin, ImVec2 size)
                                (size.y - ImGui::GetTextLineHeight()) * 0.5f));
     ImGui::TextUnformatted("CamVJ");
 
+    // Version first in the grey strip: the operator reads it off the screen
+    // when someone asks which build is on the machine.
     char meta[96];
-    std::snprintf(meta, sizeof(meta), "%ux%u    %s",
-                  state.processingWidth, state.processingHeight, state.backendName);
+    std::snprintf(meta, sizeof(meta), "v%s    %ux%u    %s",
+                  kVersion, state.processingWidth, state.processingHeight, state.backendName);
     ImGui::SameLine(0.0f, theme::scaled(16.0f));
     ui::pushMono();
     ImGui::AlignTextToFramePadding();

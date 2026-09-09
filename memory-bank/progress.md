@@ -200,7 +200,8 @@ Windows pendentes.
 | `src/atem/`, FX Bus, FX TAKE | M4 |
 | MIDI, áudio | M5 |
 | Fill/Key, layers, blend | M6 |
-| Catch2, CI, spdlog, JSON loader | não issueados |
+| Catch2, spdlog, JSON loader | não issueados |
+| CI Windows / CD de pacotes | CI macOS self-hosted já existe |
 | Detector de pessoa no Windows | FX-022, decisão pendente |
 | Linux / terceiro backend | fora |
 
@@ -220,7 +221,8 @@ Usar isso. Não marcar FX-007/008/009 como feitos.
   (240 amostras) — comentário, não lock.
 - Sem GPU no sandbox → headless falha com “No Metal device”. Não é regressão
   do engine.
-- Sem `.github/` workflows.
+- CI macOS: `.github/workflows/ci.yml` (self-hosted ARM64 + GPU). Sem
+  runner registrado o job fica em fila. Windows CI e CD ainda não.
 - Identidade CamVJ aplicada na UI ImGui (`src/ui/Theme.*`); SVGs em `assets/files/`.
 - Enums de efeito (`Mirror.mode`) ainda são int slider.
 - Câmera USB (FX30 UVC) plugada com o app aberto não aparecia até o restart;

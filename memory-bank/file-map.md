@@ -57,7 +57,7 @@ CamVJ/
 ├── src/
 │   ├── main.cpp
 │   ├── app/          App.h App.cpp
-│   ├── core/         Log.h Log.cpp
+│   ├── core/         Log.h Log.cpp Version.h   # versão vinda do CMake
 │   ├── decklink/     decklink_discovery.h
 │   │                 decklink_discovery_win.cpp decklink_discovery_stub.cpp
 │   ├── platform/     Window.h
