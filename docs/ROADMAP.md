@@ -5,8 +5,10 @@ for M0 acceptance; the budget in code and in `App::reportTimings()` is
 16.68 ms (59.94). The engine does not lock the frame rate.
 
 M1 is the real test of the project. It is worth more than half the application.
-M1 onwards is Windows-only work: DeckLink and the ATEM SDK have no macOS
-equivalent. macOS remains the development and demonstration target.
+M1's DeckLink and ATEM SDK work remains Windows-only, but the active sequence is
+now macOS-first: finish operator confidence on macOS — camera, Vision tracking,
+Auto Frame, display output and packaging — before returning to Windows hardware
+validation.
 
 ---
 
@@ -15,7 +17,7 @@ equivalent. macOS remains the development and demonstration target.
 | Milestone | Result                                         | Status |
 | --------- | ---------------------------------------------- | ------ |
 | M0        | GPU engine running with a test source          | **done** |
-| M1        | DeckLink IN → GPU → DeckLink OUT               | **in progress** |
+| M1        | DeckLink IN → GPU → DeckLink OUT               | paused until macOS validation is complete |
 | M2        | Effect *graph* (DAG) and a feedback effect     |        |
 | M3        | Presets (JSON) on top of the existing UI       |        |
 | M4        | ATEM integration                               |        |
@@ -41,7 +43,23 @@ continuously at 1920×1080 and applies RGB Split and Pixelate in real time on
 the GPU, with FPS and frame-time measurement visible (or printed in
 `--headless`).
 
-### M1 progress and next validation
+### Active priority: macOS production/demo path
+
+As of 2026-09-09, development is explicitly **macOS-first**. The next work is
+not `decklink_capture_win.cpp`; it is validating the show path already available
+on macOS:
+
+1. manual UI inspection of the CamVJ layout/theme and parameter-loop controls;
+2. live camera validation, especially the Sony FX30 UVC path;
+3. Auto Frame validation with a moving presenter and visible SOURCE crop
+   preview;
+4. display output to the intended external display or LED processor input;
+5. unsigned macOS package verification.
+
+The executable plan is
+[`docs/plans/2026-09-09-macos-first-development.md`](plans/2026-09-09-macos-first-development.md).
+
+### M1 progress and next Windows validation
 
 FX-010 adds standalone `--list-decklink` discovery with an optional Windows
 DeckLink SDK build and an unavailable stub elsewhere. It reports device
@@ -50,12 +68,17 @@ exits before rendering initialization. It does not detect a live signal or
 start capture, playback or hotplug monitoring.
 
 The implementation is **pending Windows build and hardware validation**;
-FX-010 is not done. Verify the SDK build, driver failure diagnostics, zero
-devices and the metadata reported by a real device. The macOS headless gate
-continues to protect the M0 rendering path; it cannot validate DeckLink.
+FX-010 is not done. That validation is intentionally deferred until the active
+macOS path above is complete. When Windows work resumes, verify the SDK build,
+driver failure diagnostics, zero devices and the metadata reported by a real
+device. The macOS headless gate continues to protect the M0 rendering path; it
+cannot validate DeckLink.
 
 The remaining M1 work is FX-011 capture, FX-012 playback, FX-013 frame queues
-and FX-014 video timing, including separation of processing from the UI.
+and FX-014 video timing, including separation of processing from the UI. The
+portable FX-011 seam now exists (`decklink_capture.h` plus `DeckLinkSource`),
+but the Windows SDK capture implementation and hardware validation are still
+open.
 
 ### Extension to the current effect system
 
@@ -66,10 +89,11 @@ through the generic parameter UI. Each node owns its loops independently;
 they continue through effect bypass and reordering. Settings last for the
 session only.
 
-Implementation is pending validation. This bounded extension does not open
-the M2 graph, M3 presets or M5 MIDI/audio work, and does not change the M1
-DeckLink validation requirements. Scalar automation has a standalone C++ test
-registered through CTest; the macOS headless gate remains required.
+Build, CTest and the macOS headless gate passed on 2026-09-09; manual UI
+inspection is still pending. This bounded extension does not open the M2 graph,
+M3 presets or M5 MIDI/audio work, and does not change the M1 DeckLink validation
+requirements. Scalar automation has a standalone C++ test registered through
+CTest; the macOS headless gate remains required.
 
 ### Subject tracking and auto framing
 
@@ -168,7 +192,7 @@ The UI already renders any effect from `ParameterSet`. M3 is **presets**
 | FX-008 | Feedback buffer / effect | M2     |        |
 | FX-009 | Presets               | M3        |        |
 | FX-010 | DeckLink discovery    | M1        | implemented; Windows build/device validation pending |
-| FX-011 | DeckLink capture      | M1        |        |
+| FX-011 | DeckLink capture      | M1        | portable source seam implemented; Windows SDK capture pending |
 | FX-012 | DeckLink playback     | M1        |        |
 | FX-013 | Frame queues          | M1        |        |
 | FX-014 | Video timing          | M1        |        |

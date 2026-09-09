@@ -13,7 +13,8 @@ inline constexpr const char* kCameraSourceIdPrefix = "camera:";
 
 // Every input the machine currently offers: the internal test pattern first,
 // then each camera the operating system reports — the built-in webcam, USB
-// cameras, and on macOS 14+ an iPhone acting as a Continuity Camera.
+// cameras, and on macOS 14+ an iPhone acting as a Continuity Camera — followed
+// by capture-capable DeckLink devices in Windows SDK builds.
 //
 // Safe to call repeatedly. Enumeration never opens a device, so it never
 // triggers a camera permission prompt; only selecting a camera does that.

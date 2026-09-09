@@ -111,6 +111,8 @@ set(ATEMFX_SOURCES
     src/video/CameraCapture.h
     src/video/CameraSource.cpp
     src/video/CameraSource.h
+    src/video/DeckLinkSource.cpp
+    src/video/DeckLinkSource.h
     src/video/FrameTiming.cpp
     src/video/FrameTiming.h
     src/video/TestPatternSource.cpp

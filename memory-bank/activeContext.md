@@ -324,13 +324,21 @@ reordenado ou bypassado. Fase double com wrap, sem contador crescente, alloc,
 lock ou log na avaliação por frame. Teste
 `tests/parameter_automation_test.cpp`, target `parameter_automation_test`,
 CTest `parameter_automation`, habilitado por `BUILD_TESTING` (default ON).
-Validação desta extensão pendente; os números abaixo são da etapa anterior.
+Validação técnica aprovada em 2026-09-09 (build, CTest, shaders e gate
+headless); inspeção manual da UI ainda pendente.
 
 FX-010: declaração portátil em `src/decklink/decklink_discovery.h`,
 implementação Windows e stub sem SDK; integração opcional do SDK em
 `cmake/decklink.cmake`; dispatch de `--list-decklink` no startup.
 Documentação e memory-bank distinguem discovery existente de pipeline M1
 futuro. Nenhum capture, playback ou hotplug foi adicionado.
+
+FX-011 seam inicial (2026-09-09): `src/decklink/decklink_capture.h` define a
+API capture-only e `decklink_capture_stub.cpp` mantém builds sem SDK sem fontes
+SDI. `src/video/DeckLinkSource.*` ocupa o seam `VideoSource` usando o mesmo
+upload BGRA + `source_blit` das câmeras, com mapping identidade e single-slot
+temporário. A implementação real `decklink_capture_win.cpp` ainda falta e
+depende de validação Windows/DeckLink.
 
 Validação final em 2026-09-08: build Release macOS passou; 20 verificações
 de CLI passaram, inclusive conflitos com os novos comandos de fontes e

@@ -32,7 +32,7 @@ quadro, ~0,3 ms de GPU sobre o passthrough no M4. Também não é FX-008.
 
 ## Extensão solicitada: loops por parâmetro
 
-Implementação em validação, sem abrir novo milestone:
+Implementação tecnicamente validada, sem abrir novo milestone:
 
 - Cada parâmetro de cada nó tem loop independente: Sine, Triangle, Ramp Up,
   Ramp Down ou Square; limites, ciclo 0,05–600 s e offset de fase 0–1.
@@ -47,7 +47,8 @@ Implementação em validação, sem abrir novo milestone:
 - CTest portátil em `tests/parameter_automation_test.cpp`, sem Catch2.
 
 Não é editor de nós/DAG (M2), presets (M3) ou modulação MIDI/áudio (M5).
-Teste unitário, build, UI e gate headless desta extensão ainda pendentes.
+Build Release, CTest e gate headless passaram em 2026-09-09; a conferência
+manual dos controles na UI ainda está pendente.
 
 ## Extensão solicitada: tracking e enquadramento automático
 
@@ -155,7 +156,21 @@ Implementado no macOS 13+, ponta a ponta ainda por validar:
   mensagem acionável e exit 1. **Falta** confirmar quadros chegando num app de
   chamada — depende de habilitar a extensão nos Ajustes do Sistema.
 
-## M1 em andamento
+## Prioridade ativa: macOS primeiro
+
+Decisão de 2026-09-09: priorizar o desenvolvimento/validação macOS antes de
+retomar Windows/DeckLink. Plano ativo:
+`docs/plans/2026-09-09-macos-first-development.md`.
+
+Próximos gates macOS, em ordem:
+
+1. inspeção manual da UI CamVJ e controles de loop;
+2. câmera ao vivo/FX30 via AVFoundation;
+3. Vision tracking + Auto Frame com apresentador em movimento;
+4. saída para display externo/LED processor;
+5. pacote unsigned verificado.
+
+## M1 preservado, mas pausado
 
 - FX-010 implementado: `--list-decklink` enumera e loga nomes de modelo e
   display, capacidades de capture/playback e conexões de vídeo suportadas.
@@ -169,11 +184,17 @@ Implementado no macOS 13+, ponta a ponta ainda por validar:
 **FX-010 ainda não está done:** build com SDK e validação com driver/placa
 Windows pendentes.
 
+- FX-011 começou pelo seam seguro: `decklink_capture.h` declara enumeração e
+  callback de captura, `decklink_capture_stub.cpp` retorna nenhuma fonte em
+  builds sem SDK, e `DeckLinkSource` já adapta frames BGRA ao `VideoSource` sem
+  playback, filas ou clock. A implementação Windows (`decklink_capture_win.cpp`)
+  ainda não existe; sem ela, `--list-sources` segue sem SDI.
+
 ## O que não existe
 
 | Item | Milestone |
 | --- | --- |
-| Captura/saída DeckLink, filas, clock de vídeo, split de thread | M1 |
+| Captura DeckLink real/saída DeckLink, filas, clock de vídeo, split de thread | M1 |
 | Grafo DAG, efeito de feedback | M2 |
 | Presets JSON | M3 |
 | `src/atem/`, FX Bus, FX TAKE | M4 |
@@ -212,9 +233,10 @@ Usar isso. Não marcar FX-007/008/009 como feitos.
 ```
 
 Obrigatório em macOS com GPU antes de chamar qualquer mudança de código de
-feita. O gate da extensão de loops ainda está pendente. O gate da etapa
-anterior (FX-010) passou em 2026-09-08 fora do sandbox: Apple M4,
-200 frames, 1,131 ms de processamento GPU. Build Release e 20 verificações
-de CLI passaram; CMake rejeitou DeckLink habilitado em plataforma não
+feita. O gate mais recente passou em 2026-09-09 no Apple M4: CTest 2/2,
+`--check-shaders` 11/11 e 200 frames com `auto_frame` default ligado, 2,417 ms
+de processamento GPU. A etapa FX-010 também tinha passado em 2026-09-08 fora
+do sandbox: Apple M4, 200 frames, 1,131 ms de processamento GPU, build Release
+e 20 verificações de CLI; CMake rejeitou DeckLink habilitado em plataforma não
 suportada. A validação de DeckLink e dos diagnósticos Unicode no Windows
 continua pendente.

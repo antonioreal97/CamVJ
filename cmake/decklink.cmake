@@ -4,6 +4,13 @@ option(ATEMFX_ENABLE_DECKLINK "Build Windows DeckLink device discovery" OFF)
 set(ATEMFX_DECKLINK_SDK_DIR "" CACHE PATH "External Blackmagic DeckLink SDK root")
 
 function(atemfx_configure_decklink target)
+    # FX-011's portable capture seam is present in every build. Until the
+    # Windows SDK implementation lands, the stub keeps non-hardware builds and
+    # the existing macOS gate identical: no selectable SDI sources.
+    target_sources(${target} PRIVATE
+        src/decklink/decklink_capture.h
+        src/decklink/decklink_capture_stub.cpp)
+
     if(NOT ATEMFX_ENABLE_DECKLINK)
         target_sources(${target} PRIVATE src/decklink/decklink_discovery_stub.cpp)
         return()

@@ -438,10 +438,13 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j8
 ./scripts/package_macos.sh
 ```
 
-Produces `dist/CamVJ-<version>-macos.dmg` with `CamVJ.app` and an Applications
-symlink (drag-to-install). Inside the bundle the executable remains `atem_fx`
-and the bundle id remains `fx.atem.engine` so an existing camera TCC grant is
-not invalidated. Shaders live in `Contents/Resources/shaders`.
+Produces `dist/CamVJ-<version>-macos-<arch>.dmg` with `CamVJ.app` and an
+Applications symlink (drag-to-install). On the current release host this is
+`dist/CamVJ-1.0.0-macos-arm64.dmg`; Intel Macs can build a local `macos-x64`
+package, but no universal binary is produced by the script. Inside the bundle
+the executable remains `atem_fx` and the bundle id remains `fx.atem.engine` so
+an existing camera TCC grant is not invalidated. Shaders live in
+`Contents/Resources/shaders`.
 
 First open on another Mac: right-click the app → **Open** (Gatekeeper). Grant
 camera access when prompted, or later under **System Settings › Privacy &

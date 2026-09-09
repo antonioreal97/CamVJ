@@ -6,7 +6,7 @@
 #
 # Usage:
 #   ./scripts/package_macos.sh
-#   ./scripts/package_macos.sh -B build -v 0.1.0
+#   ./scripts/package_macos.sh -B build -v 1.0.0
 #   ./scripts/package_macos.sh --skip-smoke
 
 set -euo pipefail
@@ -77,7 +77,20 @@ fi
 DIST_DIR="${ROOT}/dist"
 STAGE_ROOT="${DIST_DIR}/macos"
 STAGE_APP="${STAGE_ROOT}/CamVJ.app"
-DMG_NAME="CamVJ-${VERSION}-macos.dmg"
+ARCH="$(uname -m)"
+case "${ARCH}" in
+    arm64)
+        PACKAGE_ARCH="arm64"
+        ;;
+    x86_64)
+        PACKAGE_ARCH="x64"
+        ;;
+    *)
+        PACKAGE_ARCH="${ARCH}"
+        ;;
+esac
+
+DMG_NAME="CamVJ-${VERSION}-macos-${PACKAGE_ARCH}.dmg"
 DMG_PATH="${DIST_DIR}/${DMG_NAME}"
 VOL_NAME="CamVJ ${VERSION}"
 

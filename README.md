@@ -51,10 +51,12 @@ Arquivos nos [Releases do GitHub](https://github.com/antonioreal97/CamVJ/release
 
 | Sistema | Status | Arquivo | O que fazer |
 | ------- | ------ | ------- | ----------- |
-| **macOS** (Apple Silicon ou Intel, 11+) | Disponível | `CamVJ-<versão>-macos.dmg` | Abrir o DMG → arrastar **CamVJ** para **Applications** → abrir o app |
+| **macOS** (Apple Silicon, 11+) | Disponível | `CamVJ-<versão>-macos-arm64.dmg` | Abrir o DMG → arrastar **CamVJ** para **Applications** → abrir o app |
 | **Windows** (x64, 10 1703+) | Em breve | `CamVJ-<versão>-windows-x64.zip` | Extrair a pasta → abrir `CamVJ/CamVJ.exe` |
 
-Exemplo atual: `CamVJ-1.0.0-macos.dmg`.
+Exemplo atual: `CamVJ-1.0.0-macos-arm64.dmg`. A build publicada hoje é
+`arm64`; o projeto também pode ser compilado localmente em um Mac Intel, mas
+esse binário ainda não é distribuído e o pacote não é universal.
 
 **macOS.** Na primeira abertura, se o Gatekeeper bloquear: clique direito no
 app → **Abrir**. Autorize a câmera quando pedido (ou em **Ajustes do Sistema ›
