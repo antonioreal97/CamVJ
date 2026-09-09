@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(AtemFx VERSION 0.1.0 LANGUAGES CXX)
+project(AtemFx VERSION 1.0.0 LANGUAGES CXX)
 
 # ---------------------------------------------------------------------------
 # Platform selection

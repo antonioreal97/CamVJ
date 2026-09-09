@@ -10,7 +10,7 @@ volta a um switcher Blackmagic ATEM.
 
 **Estado: M0 feito; M1 em andamento.** Núcleo GPU com dois backends atrás de
 uma interface comum — **Metal (macOS)** e **Direct3D 11 (Windows)** — em
-1920×1080, quatro efeitos, UI ImGui, self-test headless. As entradas de vídeo
+1920×1080, nove efeitos, UI ImGui, self-test headless. As entradas de vídeo
 ficam atrás de `VideoSource`: padrão de teste, webcam interna e câmeras USB
 (no macOS 14+ também iPhone via Continuity). É essa a interface que o DeckLink
 vai implementar no M1.
@@ -51,10 +51,12 @@ Arquivos nos [Releases do GitHub](https://github.com/antonioreal97/CamVJ/release
 
 | Sistema | Status | Arquivo | O que fazer |
 | ------- | ------ | ------- | ----------- |
-| **macOS** (Apple Silicon ou Intel, 11+) | Disponível | `CamVJ-<versão>-macos.dmg` | Abrir o DMG → arrastar **CamVJ** para **Applications** → abrir o app |
+| **macOS** (Apple Silicon, 11+) | Disponível | `CamVJ-<versão>-macos-arm64.dmg` | Abrir o DMG → arrastar **CamVJ** para **Applications** → abrir o app |
 | **Windows** (x64, 10 1703+) | Em breve | `CamVJ-<versão>-windows-x64.zip` | Extrair a pasta → abrir `CamVJ/CamVJ.exe` |
 
-Exemplo atual: `CamVJ-1.0.0-macos.dmg`.
+Exemplo atual: `CamVJ-1.0.0-macos-arm64.dmg`. A build publicada hoje é
+`arm64`; o projeto também pode ser compilado localmente em um Mac Intel, mas
+esse binário ainda não é distribuído e o pacote não é universal.
 
 **macOS.** Na primeira abertura, se o Gatekeeper bloquear: clique direito no
 app → **Abrir**. Autorize a câmera quando pedido (ou em **Ajustes do Sistema ›

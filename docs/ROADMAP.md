@@ -29,7 +29,8 @@ equivalent. macOS remains the development and demonstration target.
   **Direct3D 11 (Windows)**.
 - GPU test pattern source at 1920×1080 (not MP4).
 - Linear `EffectChain` + `EffectRegistry` + generic `ParameterSet` UI.
-- Effects: Passthrough, RGB Split, Pixelate, Mirror — each with HLSL and MSL.
+- Effects: Passthrough, RGB Split, Pixelate, FM Raster, Subpixel, Shutter,
+  CRT, Mirror and Auto Frame — each with HLSL and MSL.
 - ImGui panels: Source, Effects (add/remove/reorder), Preview, Stats.
 - CPU and GPU timing. Measured on macOS, Apple M4, 1920×1080: 3000 frames at
   134 fps with vsync, 0.7 ms of GPU processing against a 16.68 ms budget.
@@ -64,10 +65,11 @@ through the generic parameter UI. Each node owns its loops independently;
 they continue through effect bypass and reordering. Settings last for the
 session only.
 
-Implementation is pending validation. This bounded extension does not open
-the M2 graph, M3 presets or M5 MIDI/audio work, and does not change the M1
-DeckLink validation requirements. Scalar automation has a standalone C++ test
-registered through CTest; the macOS headless gate remains required.
+Build, CTest and the macOS headless gate passed on 2026-09-09; manual UI
+inspection is still pending. This bounded extension does not open the M2 graph,
+M3 presets or M5 MIDI/audio work, and does not change the M1 DeckLink validation
+requirements. Scalar automation has a standalone C++ test registered through
+CTest; the macOS headless gate remains required.
 
 ### Subject tracking and auto framing
 

@@ -7,10 +7,11 @@ discovery foi implementado e aguarda validação de build e placa Windows.
 Captura, playback, filas, timing e split de thread ainda não existem.
 
 Pedido atual (2026-09-08): pacotes de distribuição unsigned —
-`scripts/package_macos.sh` → `dist/CamVJ-<ver>-macos.dmg` (CamVJ.app +
-Applications); `scripts/package_windows.ps1` → ZIP com CamVJ.exe + shaders.
-Bundle id / binário macOS inalterados. Sem codesign/notarização nesta etapa.
-Validação Windows do script pendente (precisa de máquina VS).
+`scripts/package_macos.sh` → `dist/CamVJ-<ver>-macos-<arch>.dmg` (CamVJ.app +
+Applications; arm64 no host de release atual); `scripts/package_windows.ps1`
+→ ZIP com CamVJ.exe + shaders. Bundle id / binário macOS inalterados. Sem
+codesign/notarização nesta etapa. Validação Windows do script pendente
+(precisa de máquina VS).
 
 Pedido anterior (2026-09-08): ícone do app no Dock/Finder — `assets/macos/CamVJ.icns`
 gerado de `assets/files/camvj-icon-1024.png`, `CFBundleIconFile` no plist e
@@ -138,7 +139,8 @@ reordenado ou bypassado. Fase double com wrap, sem contador crescente, alloc,
 lock ou log na avaliação por frame. Teste
 `tests/parameter_automation_test.cpp`, target `parameter_automation_test`,
 CTest `parameter_automation`, habilitado por `BUILD_TESTING` (default ON).
-Validação desta extensão pendente; os números abaixo são da etapa anterior.
+Validação técnica aprovada em 2026-09-09 (build, CTest, shaders e gate
+headless); inspeção manual da UI ainda pendente.
 
 FX-010: declaração portátil em `src/decklink/decklink_discovery.h`,
 implementação Windows e stub sem SDK; integração opcional do SDK em
@@ -160,11 +162,11 @@ e mantém UTF-8 em saída redirecionada; a execução Windows segue pendente.
    detector de produção desta feature; o detector do Windows fica adiado, não
    bloqueia. Formato 16:9 / 9:16 (letterbox no canvas 1920×1080) e Preview
    SOURCE/PROGRAM estão implementados. Abertos: (a) validar com câmera real e
-   Auto Frame ligado — caixas no SOURCE, PROGRAM 16:9 vs 9:16; (b) **não
-   existe saída de vídeo no macOS** — levar a imagem até a ATEM ou o Resolume
-   não está resolvido nem escopado.
-1. Concluir testes de automação e gate macOS de 200 frames; conferir controles
-   de loop na UI antes de chamar a extensão de concluída.
+   Auto Frame ligado — caixas no SOURCE, PROGRAM 16:9 vs 9:16; (b) existe
+   saída para display HDMI/DisplayPort no macOS, mas saída limpa SDI/DeckLink
+   para voltar à ATEM não está resolvida nem escopada.
+1. Conferir manualmente os controles de loop na UI; build, CTest, shaders e
+   gate macOS de 200 frames já passaram em 2026-09-09.
 2. Validar FX-010 com build Windows e SDK real: diagnóstico sem driver,
    enumeração sem dispositivos e metadados de uma placa. Não marcar done
    antes dessa validação.
