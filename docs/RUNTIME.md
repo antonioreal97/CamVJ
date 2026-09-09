@@ -468,8 +468,9 @@ until the next `process()` or shutdown.
 src/main.cpp
 src/app/App.h App.cpp
 src/core/Log.h Log.cpp Version.h
-src/decklink/decklink_discovery.h
+src/decklink/decklink_discovery.h decklink_capture.h
 src/decklink/decklink_discovery_win.cpp decklink_discovery_stub.cpp
+src/decklink/decklink_capture_stub.cpp
 src/platform/Window.h Display.h OutputWindow.h
 src/platform/mac/MacWindow.mm MacDisplay.mm
 src/platform/win32/Win32Window.cpp Win32OutputWindow.cpp Win32MessageHook.h
@@ -478,6 +479,7 @@ src/gpu/d3d11/D3D11Device.h D3D11Backend.cpp
 src/gpu/metal/MetalDevice.h MetalBackend.mm
 src/video/FrameTiming.h/.cpp TestPatternSource.h/.cpp
 src/video/VideoSource.h VideoDevices.h/.cpp CameraCapture.h CameraSource.h/.cpp
+src/video/DeckLinkSource.h/.cpp
 src/video/source_health.h/.cpp program_output.h/.cpp
 src/video/virtual_camera.h virtual_camera_stub.cpp
 src/video/mac/CameraCaptureAVF.mm virtual_camera_mac.mm

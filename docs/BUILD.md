@@ -459,7 +459,7 @@ Four places show it, all from the same constant:
 | `--version` and the `--help` banner | `CamVJ 1.0.0 (Metal)` |
 | the startup log, and the headless timing banner | `CamVJ 1.0.0 ready: Metal backend, processing 1920x1080` |
 | the UI header, in the grey strip beside the wordmark | `v1.0.0    1920x1080    Metal` |
-| the macOS bundle and the package file name | `CamVJ-1.0.0-macos.dmg` |
+| the macOS bundle and the package file name | `CamVJ-1.0.0-macos-arm64.dmg` |
 
 `--version` is answered before anything else is parsed, like `--help`: it opens
 no device and is never refused for the company it keeps on the command line.
