@@ -72,7 +72,21 @@ Verificado: build limpo, `ctest` 2/2, `--check-shaders` 11/11, gate headless
 **Não verificado:** detecção com câmera ao vivo (permissão negada para este
 binário) e qualquer coisa no Windows.
 
-## M1 em andamento
+## Prioridade ativa: macOS primeiro
+
+Decisão de 2026-09-09: priorizar o desenvolvimento/validação macOS antes de
+retomar Windows/DeckLink. Plano ativo:
+`docs/plans/2026-09-09-macos-first-development.md`.
+
+Próximos gates macOS, em ordem:
+
+1. inspeção manual da UI CamVJ e controles de loop;
+2. câmera ao vivo/FX30 via AVFoundation;
+3. Vision tracking + Auto Frame com apresentador em movimento;
+4. saída para display externo/LED processor;
+5. pacote unsigned verificado.
+
+## M1 preservado, mas pausado
 
 - FX-010 implementado: `--list-decklink` enumera e loga nomes de modelo e
   display, capacidades de capture/playback e conexões de vídeo suportadas.

@@ -1,6 +1,8 @@
 # M1 DeckLink Windows Validation and Capture Implementation Plan
 
-> **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
+> **Status:** Paused as of 2026-09-09. The active sequence is macOS-first; use `docs/plans/2026-09-09-macos-first-development.md` before resuming this Windows DeckLink plan.
+>
+> **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task after the macOS-first plan is complete.
 
 **Goal:** Move CamVJ from DeckLink discovery only toward the first real M1 hardware path: validating FX-010 on Windows, then adding FX-011 capture as a selectable `VideoSource` without capture/playback coupling.
 

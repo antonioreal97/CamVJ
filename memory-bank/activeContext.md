@@ -2,11 +2,17 @@
 
 ## Foco
 
-**M0 está fechado; M1 DeckLink está em andamento** (Windows). FX-010
-discovery foi implementado e aguarda validação de build e placa Windows.
-FX-011 tem seam portátil (`decklink_capture.h` + `DeckLinkSource`) já integrado
-ao `VideoSource`, mas a captura Windows com SDK/placa ainda não existe.
-Playback, filas, timing e split de thread ainda não existem.
+**Prioridade ativa: macOS primeiro.** O usuário decidiu em 2026-09-09
+priorizar o desenvolvimento/validação macOS e só depois retomar Windows.
+M0 está fechado; o próximo plano ativo é
+`docs/plans/2026-09-09-macos-first-development.md`: UI manual, câmera/FX30,
+Vision tracking + Auto Frame, saída para display e pacote unsigned.
+
+M1 DeckLink fica preservado, mas pausado: FX-010 discovery foi implementado e
+aguarda validação de build/placa Windows; FX-011 tem seam portátil
+(`decklink_capture.h` + `DeckLinkSource`) integrado ao `VideoSource`, mas a
+captura Windows com SDK/placa ainda não existe. Playback, filas, timing e split
+de thread ainda não existem.
 
 Pedido atual (2026-09-08): pacotes de distribuição unsigned —
 `scripts/package_macos.sh` → `dist/CamVJ-<ver>-macos-<arch>.dmg` (CamVJ.app +
