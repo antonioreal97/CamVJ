@@ -86,8 +86,11 @@ is the engineering budget the timings are judged against, not a vsync mode.
 
 ## 3. Target pipeline (M1 onward)
 
-**Status: Design — not implemented.** `src/decklink/` currently contains
-discovery only. There is no `FrameQueue`, capture thread or output thread.
+**Status: Design — not implemented.** `src/decklink/` contains discovery plus
+the FX-011 capture *seam* (`decklink_capture.h` and a stub that reports no
+sources off the SDK build); `DeckLinkSource` can occupy the `VideoSource` slot
+with it. There is no Windows capture implementation, `FrameQueue`, capture
+thread or output thread.
 
 ```text
 DeckLink Capture Thread
@@ -119,8 +122,10 @@ src/
 ├── main.cpp          CLI, standalone discovery dispatch, DPI awareness, App lifetime
 ├── app/              Application lifetime, frame loop, wiring. Owns rendering.
 ├── core/             Minimal printf logger. No dependencies.
-├── decklink/         Standalone discovery; optional Windows SDK implementation
-│                     or unavailable stub. No capture or playback.
+├── decklink/         Standalone discovery plus the portable capture seam
+│                     (decklink_capture.h); optional Windows SDK implementation
+│                     or unavailable stub. No capture implementation, no
+│                     playback.
 ├── platform/         Window and event loop.
 │   ├── win32/          Win32 message pump
 │   └── mac/            AppKit window, manual event pump
@@ -185,8 +190,9 @@ Inputs are behind `src/video/VideoSource.h`, the same way the GPU is behind
               VideoSource
                    │
    ┌───────────────┼──────────────────┐
-TestPatternSource  CameraSource     DeckLinkSource (M1)
- (GPU generator)        │
+TestPatternSource  CameraSource     DeckLinkSource (M1 seam,
+ (GPU generator)        │                              no capture yet)
+                        │
                         ▼
                   CameraCapture
                   ┌─────┴──────┐
