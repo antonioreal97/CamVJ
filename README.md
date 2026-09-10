@@ -30,6 +30,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j8
 ./build/bin/atem_fx --list-displays                      # telas de saída
 ./build/bin/atem_fx --output 2                           # manda o programa para a tela 2
 ./build/bin/atem_fx --check-shaders                      # compila todos os shaders
+./build/bin/atem_fx --version                            # qual build está aqui
 ```
 
 No macOS o binário fica em `build/bin/atem_fx.app` (o bundle é o que permite o
@@ -76,6 +77,15 @@ A versão sai do `project(... VERSION ...)` do `CMakeLists.txt` — hoje
 **1.0.0**, a mesma da tag `v1.0.0` e do release. `-v` só serve para gerar um
 pacote fora dessa numeração.
 
+Para saber qual build está numa máquina, sem abrir o app:
+
+```bash
+./build/bin/atem_fx --version      # CamVJ 1.0.0 (Metal)
+```
+
+O mesmo número aparece no cabeçalho da interface (ao lado da marca) e na
+primeira linha do log — é o que se lê depois do show, no arquivo.
+
 O script Windows (`scripts/package_windows.ps1`) já existe; falta só rodar o
 build Release numa máquina com Visual Studio. Detalhes em
 [docs/BUILD.md](docs/BUILD.md#distribution-packages).
@@ -94,7 +104,8 @@ Orçamento: 16,68 ms/frame (59,94 fps). A taxa não é travada no display.
 
 CLI: `--headless`, `--frames N`, `--dump PATH`, `--enable a,b,c`,
 `--no-vsync`, `--source ID`, `--pattern NAME`, `--list-sources`, `--output ID`,
-`--list-displays`, `--webcam`, `--program MODE`, `--list-decklink`, `--help`.
+`--list-displays`, `--webcam`, `--program MODE`, `--list-decklink`,
+`--version`, `--help`.
 Detalhes em [docs/BUILD.md](docs/BUILD.md).
 
 ## Pattern para mapear painéis de LED

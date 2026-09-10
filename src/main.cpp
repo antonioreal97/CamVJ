@@ -6,6 +6,8 @@
 
 #include "app/App.h"
 #include "core/Log.h"
+#include "core/Version.h"
+#include "gpu/Backend.h"
 #include "platform/Display.h"
 #include "video/VideoDevices.h"
 #include "decklink/decklink_discovery.h"
@@ -84,10 +86,19 @@ void printDisplays()
     }
 }
 
+// Which build is on this machine, in one line. At a show the answer has to be
+// available without opening the app, so it is a command, not a UI corner.
+void printVersion()
+{
+    // The backend is compiled in, so naming it here says as much about the
+    // build as the number does.
+    std::printf("CamVJ %s (%s)\n", atemfx::kVersion, atemfx::backendName());
+}
+
 void printUsage()
 {
     std::printf(
-        "CamVJ — live video FX engine\n"
+        "CamVJ %s — live video FX engine\n"
         "\n"
         "  atem_fx [options]\n"
         "\n"
@@ -105,7 +116,9 @@ void printUsage()
         "  --list-displays     list the available displays and exit\n"
         "  --check-shaders     compile every shader and exit (opens no device)\n"
         "  --list-decklink     list DeckLink devices and exit (Windows SDK build)\n"
-        "  --help              show this message\n");
+        "  --version           print the version and exit\n"
+        "  --help              show this message\n",
+        atemfx::kVersion);
 }
 
 bool parseArguments(int argc, char** argv, CommandLineOptions& command, bool& shouldExit)
@@ -119,6 +132,14 @@ bool parseArguments(int argc, char** argv, CommandLineOptions& command, bool& sh
         if (argument == "--help" || argument == "-h")
         {
             printUsage();
+            shouldExit = true;
+            return true;
+        }
+        else if (argument == "--version")
+        {
+            // Like --help: answered before anything else is parsed, so it can
+            // never be refused for keeping bad company on the command line.
+            printVersion();
             shouldExit = true;
             return true;
         }

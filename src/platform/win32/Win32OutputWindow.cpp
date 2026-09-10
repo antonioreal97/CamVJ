@@ -234,7 +234,7 @@ bool Win32OutputWindow::open(const std::string& displayId)
     // the user interface when it opens.
     handle_ = ::CreateWindowExW(WS_EX_TOPMOST | WS_EX_NOACTIVATE,
                                 kOutputClassName,
-                                L"ATEM FX Output",
+                                L"CamVJ Output",
                                 WS_POPUP,
                                 left, top, width, height,
                                 nullptr, nullptr, instance, this);

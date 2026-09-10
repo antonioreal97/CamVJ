@@ -57,9 +57,11 @@ CamVJ/
 ├── src/
 │   ├── main.cpp
 │   ├── app/          App.h App.cpp
-│   ├── core/         Log.h Log.cpp
+│   ├── core/         Log.h Log.cpp Version.h   # versão vinda do CMake
 │   ├── decklink/     decklink_discovery.h
 │   │                 decklink_discovery_win.cpp decklink_discovery_stub.cpp
+│   │                 decklink_capture.h         # seam FX-011 (capture-only)
+│   │                 decklink_capture_stub.cpp  # sem SDK: nenhuma fonte SDI
 │   ├── platform/     Window.h
 │   │   ├── mac/      MacWindow.mm
 │   │   └── win32/    Win32Window.cpp Win32MessageHook.h
@@ -67,6 +69,7 @@ CamVJ/
 │   │   ├── d3d11/    D3D11Device.h D3D11Backend.cpp
 │   │   └── metal/    MetalDevice.h MetalBackend.mm
 │   ├── video/        FrameTiming.* TestPatternSource.*
+│   │                 DeckLinkSource.h/.cpp      # seam VideoSource, sem captura
 │   │                 source_health.h/.cpp       # Live/Stale/Waiting da fonte
 │   │                 program_output.h/.cpp      # FX/Clean/Freeze/Black + latch
 │   │                                            # + ProgramTransition (dissolução)
@@ -102,7 +105,8 @@ CamVJ/
 ```
 
 **Não existem:** `src/atem/`, `src/audio/`, `src/midi/`, `include/`.
-`src/decklink/` contém somente discovery; captura, saída, filas e hotplug
-não foram implementados.
+`src/decklink/` contém discovery e o seam de captura (`decklink_capture.h` +
+stub); a implementação Windows (`decklink_capture_win.cpp`), saída, filas e
+hotplug não foram implementadas.
 
 Namespace: `atemfx`.

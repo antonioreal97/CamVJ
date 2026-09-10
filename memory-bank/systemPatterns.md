@@ -66,10 +66,13 @@ Se precisar mais, a abstração está errada.
 
 ## Ownership
 
-`App` é o dono: `Window`, `GraphicsDevice`, `TestPatternSource`,
-`EffectChain`, `FrameTiming`, `UiLayer`. `unique_ptr` para dono; ponteiro
-cru / referência para empréstimo. `EffectContext` e `UiFrameState` são
-snapshots por frame.
+`App` é o dono: `Window`, `GraphicsDevice`, `VideoSource` (test pattern ou
+câmera), `OutputWindow` + `OutputSurface`, `VirtualCameraOutput`, `Tracker`,
+`EffectChain`, `ProgramOutput`, `SourceHealth`, `FrameTiming`, `UiLayer`.
+`unique_ptr` para dono; ponteiro cru / referência para empréstimo.
+`EffectContext` e `UiFrameState` são snapshots por frame. A surface morre
+antes da janela de saída (desenha na layer dela); a webcam parando fica viva
+até o worker soltar a câmera. Lista exata em `docs/RUNTIME.md#ownership`.
 
 Discovery (`--list-decklink`) é outro caminho de startup: não cria `App`.
 O comando é dono dos recursos SDK/COM e os libera ao encerrar. A interface
@@ -88,6 +91,15 @@ não bloqueiam.
 Esse split ainda é futuro. FX-010 só enumera dispositivos fora do loop;
 alocações, consultas de metadados e logs de discovery não entram no hot path.
 
+## PROGRAM é o portão
+
+`ProgramOutput` é a última etapa antes de qualquer consumidor: preview, tela
+de saída e webcam leem a mesma imagem publicada por ele. FX/Clean são as
+pontas de um dissolve de 0,35 s (`crossfade`); Freeze e Black seguram a
+imagem sem parar captura, tracking, cadeia ou surface. Perda de entrada
+trava em Freeze, nunca escolhe fonte e nunca sobrepõe um Black do operador
+(`source_health`). Detalhes em `docs/RUNTIME.md#program-safety`.
+
 ## Hot path
 
 Depois do steady state: sem alloc, sem lock, sem log no per-frame.
@@ -101,6 +113,10 @@ vídeo. Sem engolir erro de hardware.
 ## Verificação
 
 Toda mudança: `atem_fx --headless --frames 200`. Sem display, sem hardware.
-Para a lógica portátil de loops, `ctest --test-dir build --output-on-failure`
-executa `parameter_automation` com `BUILD_TESTING=ON` (default). Esse teste
-não precisa de GPU ou Catch2 e não substitui o gate de renderização.
+Em PR/push para `main`, o mesmo gate roda no Actions self-hosted macOS
+(`.github/workflows/ci.yml`), junto com CTest e `--check-shaders`.
+Para a lógica portátil, `ctest --test-dir build --output-on-failure` executa
+5 testes com `BUILD_TESTING=ON` (default): `parameter_automation`, `framing`,
+`source_mapping`, `source_health` e `program_output`. Nenhum precisa de GPU ou
+Catch2, e nenhum substitui o gate de renderização. `--check-shaders` compila
+os 14 shaders do backend sem abrir device.

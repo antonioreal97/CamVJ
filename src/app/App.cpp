@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "core/Log.h"
+#include "core/Version.h"
 #include "effects/BuiltinEffects.h"
 #include "effects/EffectRegistry.h"
 #include "gpu/Backend.h"
@@ -218,7 +219,10 @@ bool App::initialize(const AppOptions& options)
 
     timing_.reset();
 
-    ATEMFX_LOG_INFO("CamVJ ready: %s backend, processing %ux%u",
+    // The version leads the banner: a log from a show is often the only
+    // evidence of which build was on the machine that night.
+    ATEMFX_LOG_INFO("CamVJ %s ready: %s backend, processing %ux%u",
+                    kVersion,
                     backendName(),
                     kProcessingWidth,
                     kProcessingHeight);
@@ -1016,7 +1020,7 @@ void App::renderFrame()
 
 void App::reportTimings() const
 {
-    ATEMFX_LOG_INFO("--- CamVJ timing ---------------------------------");
+    ATEMFX_LOG_INFO("--- CamVJ %s timing -----------------------------", kVersion);
     ATEMFX_LOG_INFO("backend      %s (%s)", backendName(), device_->adapterName().c_str());
     ATEMFX_LOG_INFO("resolution   %ux%u", kProcessingWidth, kProcessingHeight);
     if (source_)

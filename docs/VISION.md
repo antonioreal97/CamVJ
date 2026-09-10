@@ -4,9 +4,12 @@
 used to live in `README.md` (from the first heading onward), kept so the
 rationale is not lost.
 
-What is true in the tree today: M0 GPU engine, Metal + Direct3D 11, four
-effects, ImGui, headless self-test. No DeckLink, no ATEM, no Glitch/VHS/Trails,
-no presets.
+What is true in the tree today: the M0 GPU engine, Metal + Direct3D 11, eleven
+effects (`vhs` among them), ImGui, headless self-test, camera inputs, subject
+tracking, display output, PROGRAM safety and a macOS virtual camera. No
+DeckLink capture or playback, no ATEM, no feedback/trails effect, no presets.
+The product is now called **CamVJ**; `ATEM FX` below is the provisional name
+this essay was written under.
 
 Canonical documents:
 

@@ -13,6 +13,11 @@ principles live in [ARCHITECTURE.md](ARCHITECTURE.md).
 1. On Windows, set per-monitor DPI awareness so the preview is not scaled
    twice.
 2. Parse CLI, keeping rendering options in `AppOptions` (`src/app/App.h`).
+   `--help` and `--version` are answered inside the parse loop and exit 0
+   before any other argument is read, so neither can be refused for the
+   company it keeps. `--version` prints `CamVJ <version> (<backend>)` from
+   `atemfx::kVersion` (`src/core/Version.h`, stamped by CMake) and
+   `backendName()`, both compile-time constants: it opens no device.
 3. If `--list-decklink` was requested, enumerate and log devices, then exit.
    This path creates no `App`, window, GPU device or UI.
 4. Otherwise: `App app; app.initialize(options); app.run(); app.shutdown();`
@@ -462,9 +467,10 @@ until the next `process()` or shutdown.
 ```text
 src/main.cpp
 src/app/App.h App.cpp
-src/core/Log.h Log.cpp
-src/decklink/decklink_discovery.h
+src/core/Log.h Log.cpp Version.h
+src/decklink/decklink_discovery.h decklink_capture.h
 src/decklink/decklink_discovery_win.cpp decklink_discovery_stub.cpp
+src/decklink/decklink_capture_stub.cpp
 src/platform/Window.h Display.h OutputWindow.h
 src/platform/mac/MacWindow.mm MacDisplay.mm
 src/platform/win32/Win32Window.cpp Win32OutputWindow.cpp Win32MessageHook.h
@@ -473,6 +479,7 @@ src/gpu/d3d11/D3D11Device.h D3D11Backend.cpp
 src/gpu/metal/MetalDevice.h MetalBackend.mm
 src/video/FrameTiming.h/.cpp TestPatternSource.h/.cpp
 src/video/VideoSource.h VideoDevices.h/.cpp CameraCapture.h CameraSource.h/.cpp
+src/video/DeckLinkSource.h/.cpp
 src/video/source_health.h/.cpp program_output.h/.cpp
 src/video/virtual_camera.h virtual_camera_stub.cpp
 src/video/mac/CameraCaptureAVF.mm virtual_camera_mac.mm

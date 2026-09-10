@@ -171,6 +171,7 @@ session; there are no automation CLI flags and no preset storage.
   --list-displays     list the available displays and exit
   --check-shaders     compile every shader and exit (opens no device)
   --list-decklink     list DeckLink devices and exit (Windows SDK build)
+  --version           print the version and exit
   --help              show this message
 ```
 
@@ -389,17 +390,81 @@ MTL_DEBUG_LAYER=1 MTL_SHADER_VALIDATION=1 ./build/bin/atem_fx --frames 300
 On Windows, a Debug build enables the D3D11 debug layer automatically when it
 is installed, and falls back cleanly when it is not.
 
-There is no CI workflow in the repository yet. The headless binary is the
-intended check; a machine without a GPU (some sandboxes) cannot run it.
+---
+
+## Continuous integration
+
+Protection gate only — no package upload. Workflow:
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
+
+Triggers: every pull request to `main`, and every push to `main`. The job
+`macos` must pass before a PR can merge (branch protection).
+
+### What it runs
+
+On a **self-hosted macOS runner with a Metal GPU**:
+
+```bash
+cmake -S . -B build-ci -DCMAKE_BUILD_TYPE=Release
+cmake --build build-ci -j "$(sysctl -n hw.ncpu)"
+ctest --test-dir build-ci --output-on-failure
+./build-ci/bin/atem_fx --check-shaders
+./build-ci/bin/atem_fx --headless --frames 200
+```
+
+A machine without Metal cannot run the headless step. GitHub-hosted macOS
+runners are not used for this workflow for that reason. Windows CI is out of
+scope for now; the production D3D11 path is still validated locally.
+
+### Self-hosted runner setup
+
+1. On the Mac that will run CI: install Xcode (full app, not only CLT), accept
+   the license (`sudo xcodebuild -license accept`), and put CMake 3.21+ on
+   `PATH` (Homebrew `cmake` is fine).
+2. In the GitHub repo: **Settings → Actions → Runners → New self-hosted
+   runner**. Follow the macOS ARM64 instructions.
+3. When configuring the runner, add labels exactly:
+   `self-hosted`, `macOS`, `ARM64` (the first two are defaults; add `ARM64`
+   if the installer did not).
+4. Install the runner as a service so it survives logout
+   (`./svc.sh install && ./svc.sh start` from the runner directory).
+5. Confirm the runner shows **Idle** in the GitHub UI, then open a PR — the
+   `ci / macos` check should appear.
+
+The workflow uses a dedicated `build-ci/` tree and deletes it at the end of
+every run (including failures) so the next job starts clean. Do not point the
+runner’s working directory at your interactive `build/` checkout.
+
+Until a runner with those labels is online, jobs stay queued. Branch
+protection that requires `ci / macos` only works after that check has run at
+least once.
 
 ---
 
 ## Versioning
 
 One source of truth: `project(AtemFx VERSION x.y.z)` on line 3 of
-`CMakeLists.txt`. Everything else derives from it — `MACOSX_BUNDLE_BUNDLE_VERSION`
-and `MACOSX_BUNDLE_SHORT_VERSION_STRING` in the app bundle, and the version both
-packaging scripts put in the file name when `-v` / `-Version` is not given.
+`CMakeLists.txt`. CMake stamps it on the binary as `ATEMFX_VERSION`, which
+`src/core/Version.h` exposes as `atemfx::kVersion`; everything that reports a
+version reads that. Nothing repeats the number by hand.
+
+```bash
+./build/bin/atem_fx --version      # CamVJ 1.0.0 (Metal)
+```
+
+Four places show it, all from the same constant:
+
+| Where | Looks like |
+| --- | --- |
+| `--version` and the `--help` banner | `CamVJ 1.0.0 (Metal)` |
+| the startup log, and the headless timing banner | `CamVJ 1.0.0 ready: Metal backend, processing 1920x1080` |
+| the UI header, in the grey strip beside the wordmark | `v1.0.0    1920x1080    Metal` |
+| the macOS bundle and the package file name | `CamVJ-1.0.0-macos-arm64.dmg` |
+
+`--version` is answered before anything else is parsed, like `--help`: it opens
+no device and is never refused for the company it keeps on the command line.
+A build made outside this CMake (an IDE indexer, a hand compile) has no
+`ATEMFX_VERSION` and reports `0.0.0-dev` rather than claiming a release.
 
 Current version: **1.0.0**, matching the `v1.0.0` tag and the GitHub release.
 
@@ -407,7 +472,8 @@ To release a new version:
 
 1. bump `project(AtemFx VERSION ...)` in `CMakeLists.txt`;
 2. reconfigure and build Release, then run the headless gate and CTest;
-3. package (below) and check the file name carries the new number;
+3. package (below) and check that `--version` and the file name both carry the
+   new number;
 4. tag `vX.Y.Z` on the commit that carries the bump.
 
 Do not pass `-v` / `-Version` to produce a release package: an override that

@@ -24,24 +24,33 @@ A ATEM controla comportamento. Nunca faz parte do caminho de pixels.
 
 Janela 1600×900, processamento 1920×1080, identidade CamVJ (luz sobre preto):
 
-- **Header** — marca, resolução, backend, fps, tally LIVE/IDLE da saída
+- **Header** — marca, resolução, backend, fps, tally LIVE/IDLE da saída,
+  chevron que recolhe a coluna esquerda para um rail de títulos
+- **Program** — no topo da coluna: FX / Clean / Freeze / Black
 - **Source** — entrada, tracking (âmbar Tungsten quando o assunto está travado)
-- **Output** — tela de envio; Stop em magenta quando está no ar
-- **Effects** — add/remove/reorder/enable; sliders genéricos
-- **Preview** — SOURCE (ciano, caixas do assunto/recorte) | PROGRAM (magenta; LIVE se a saída está enviando)
-- **Stats** — rate, GPU ms, engine (vsync, reload), frametime
+- **Output** — tela de envio e webcam virtual; Stop em magenta quando está no ar
+- **Effects** — add/remove/reorder/enable; parâmetros abrem no inspector largo
+  embaixo do preview, não no sidebar
+- **Preview** — monitor da esquerda é um barramento SOURCE (ciano, caixas do
+  assunto/recorte) | FX (a imagem da cadeia); o da direita é PROGRAM (magenta;
+  LIVE se a saída está enviando)
+- **Stats** — rate, GPU ms, engine (vsync, reload), frametime; cede o espaço
+  ao inspector quando um efeito está aberto
 
-Não há presets, botões 1–5, Program/Preview de mixer, nem seletor de DeckLink.
+Não há presets, botões 1–5, Program/Preview de mixer (o PROGRAM daqui são os
+quatro estados de segurança, não o barramento da ATEM), nem seletor de
+DeckLink.
 
 M1 começou com `--list-decklink`, um comando de diagnóstico separado que
 lista nomes, capacidades e conexões de vídeo suportadas. Não mostra sinal
 conectado nem inicia captura/saída. A implementação com SDK Windows ainda
-aguarda validação de build e placa; o preview continua usando a fonte de teste.
+aguarda validação de build e placa; a entrada continua sendo o padrão de teste
+ou uma câmera do sistema.
 
-Efeitos reais: Passthrough, RGB Split, Pixelate, FM Raster, Subpixel,
-Shutter, VHS, CRT, Mirror, Auto Frame. Shutter cobre o que a visão chamava de
-Trails e VHS cobre o look de fita; Glitch continua só na visão
-(`docs/VISION.md`), fora do binário.
+Efeitos reais (onze): Passthrough, RGB Split, Pixelate, FM Raster, Subpixel,
+Shutter, Frame Delay, VHS, CRT, Mirror, Auto Frame. Shutter cobre o que a
+visão chamava de Trails e VHS cobre o look de fita; Glitch continua só na
+visão (`docs/VISION.md`), fora do binário.
 
 ## Experiência que importa
 
@@ -54,7 +63,7 @@ Trails e VHS cobre o look de fita; Glitch continua só na visão
 
 | | Pipeline atual (M0) | V1 |
 | --- | --- | --- |
-| Fonte | Test pattern GPU | DeckLink capture |
-| Saída | Preview / PPM | DeckLink playback |
+| Fonte | Test pattern GPU ou câmera do sistema | DeckLink capture |
+| Saída | Preview, tela (HDMI/DP), webcam virtual no macOS, PPM | DeckLink playback |
 | Threads | Uma (UI + process) | Capture / GPU / Output separados |
 | Controle | Mouse na UI | UI + ATEM (AUX, FX TAKE) + presets |
