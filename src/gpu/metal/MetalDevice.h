@@ -19,6 +19,8 @@
 
 #include "gpu/Rhi.h"
 
+@class NSView;
+
 namespace atemfx {
 
 class MetalTexture final : public GpuTexture
@@ -208,6 +210,7 @@ private:
     id<MTLCommandQueue> queue_  = nil;
 
     CAMetalLayer*            layer_            = nil;   // nil when headless
+    __weak NSView*           previewView_      = nil;
     id<CAMetalDrawable>      drawable_         = nil;
     id<MTLCommandBuffer>     processingCommands_ = nil;
     id<MTLCommandBuffer>     uiCommands_       = nil;

@@ -1,10 +1,12 @@
 #include <windows.h>
 
+#include <atomic>
 #include <memory>
 #include <string>
 
 #include "core/Log.h"
 #include "gpu/Backend.h"
+#include "platform/Display.h"
 #include "platform/Window.h"
 #include "platform/win32/Win32MessageHook.h"
 
@@ -15,6 +17,7 @@ namespace {
 constexpr const wchar_t* kWindowClassName = L"AtemFxMainWindow";
 
 Win32MessageHook g_messageHook = nullptr;
+std::atomic<bool> g_displayChanges{false};
 
 std::wstring toWide(const std::string& text)
 {
@@ -36,6 +39,11 @@ std::wstring toWide(const std::string& text)
 void setWin32MessageHook(Win32MessageHook hook)
 {
     g_messageHook = hook;
+}
+
+bool consumeDisplayChanges()
+{
+    return g_displayChanges.exchange(false, std::memory_order_relaxed);
 }
 
 class Win32Window final : public Window
@@ -180,6 +188,12 @@ LRESULT CALLBACK Win32Window::windowProcThunk(HWND handle, UINT message, WPARAM 
 
 LRESULT Win32Window::windowProc(HWND handle, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    // Routing faults remain observable even if the UI consumes the message.
+    if (message == WM_DISPLAYCHANGE)
+    {
+        g_displayChanges.store(true, std::memory_order_relaxed);
+    }
+
     // The UI layer gets first refusal on input, exactly as ImGui expects.
     if (g_messageHook && g_messageHook(handle, message, wParam, lParam))
     {

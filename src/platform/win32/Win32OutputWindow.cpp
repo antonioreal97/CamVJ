@@ -119,6 +119,11 @@ std::vector<DisplayInfo> enumerateDisplays()
         info.name      = record.name;
         info.width     = record.width;
         info.height    = record.height;
+        info.desktopX  = static_cast<int32_t>(record.rect.left);
+        info.desktopY  = static_cast<int32_t>(record.rect.top);
+        info.desktopWidth  = static_cast<uint32_t>(record.rect.right - record.rect.left);
+        info.desktopHeight = static_cast<uint32_t>(record.rect.bottom - record.rect.top);
+        info.scaleFactor   = 1.0f;
         info.refreshHz = record.refresh;
         info.primary   = record.primary;
         displays.push_back(std::move(info));

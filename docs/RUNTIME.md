@@ -107,13 +107,14 @@ pair. macOS pumps AppKit manually so Metal can block on `nextDrawable`.
 `App::renderFrame()`:
 
 ```text
-skip if the window is minimised
-device->beginFrame()                 acquire drawable; false = skip
+serviceOutput()                      open/close/re-enumerate displays; OS changes and Escape
+serviceWebcam()                      start/stop/failure even without preview
+device->beginFrame()                 acquire preview drawable unless minimised;
+                                     Metal also skips fully occluded windows
+skip processing only if no preview, display output or webcam client
 updateEffectContext()                time, delta, frame index, RHI pointers,
                                      tracking snapshot mapped to the canvas
 optional shader reload               Stats panel flag, not every frame
-serviceOutput()                      open/close/re-enumerate displays; Escape
-serviceWebcam()                      open/close the camera extension client
 
 device->beginProcessing()            GPU timer starts
     source = source_.render(ctx)     test_pattern → persistent "source.frame"
@@ -121,8 +122,9 @@ device->beginProcessing()            GPU timer starts
     mix = programTransition_.update() FX/Clean dissolve, read before the latch
     frame = chain_.process(ctx, *)   advance all node loops, render enabled
                                      nodes; Framing roles at every mix amount
-    frame = programOutput_.render()  FX / Clean / Freeze / Black, and the
-                                     Freeze latch when the input is not healthy
+    frame = programOutput_.render()  FX / Clean / Freeze / Black, the dissolve
+                                     between whole images, and the Freeze latch
+                                     when the input is not healthy
     lastOutput_ = frame              program; source texture is kept for SOURCE
     webcam_->submit(frame)           optional; one pass into a CVPixelBuffer,
                                      handed to the camera extension when the
@@ -140,6 +142,28 @@ if window:
 device->endFrame(vsync)              present; vsync is forced off while an
                                      output surface is live — see below
 ```
+
+Output servicing precedes preview acquisition: a hidden operator window cannot
+prevent display-loss detection, Escape, webcam startup or webcam cleanup.
+If preview acquisition fails, an existing display output or webcam client
+still runs capture, the chain and PROGRAM. Metal checks the operator window's
+[occlusion state](https://developer.apple.com/documentation/appkit/nswindow/occlusionstate-swift.property)
+before asking for a drawable, avoiding an acquisition timeout for a covered
+window. When neither display paces the windowed loop, `App::run()` yields until
+16.683 ms from the tick's start, outside processing; this prevents a hidden
+webcam or idle window from flooding the GPU or busy-spinning. Headless remains
+unpaced. This fallback is a software cadence, not a hardware video clock.
+
+`consumeDisplayChanges()` consumes a platform notification flag without
+enumerating on every frame. `serviceOutput()` reconciles both the active and
+pending route by display ID through `platform/display_routing.*`, so an index
+from yesterday's list never selects a different screen. Loss of the selected
+display, or a change to its raster, refresh rate or desktop geometry, closes
+the surface before its window and cancels pending routing. The diagnostic
+persists and reconnection only refreshes the list: sending requires an explicit
+selection. PROGRAM mode and any webcam feed remain independent of that route.
+An unrelated display change preserves an unchanged active route. These safety
+checks run under Operation lock as well.
 
 There is no SDI output. The window's presented image is the swap chain with
 ImGui on top; the display output, when open, is the chain result alone,
@@ -231,6 +255,9 @@ recovery cannot depend on a disclosure triangle:
 | `Freeze` | the last good PROGRAM frame      | keeps running   |
 | `Black`  | opaque black                     | keeps running   |
 
+Every one of them is reached by a dissolve, never a cut — see *Transitions*
+below.
+
 `Clean` is not a bypass of everything. `EffectChain::process(ctx, in, mix)` at
 `mix == 0` skips `EffectRole::Visual` and keeps `EffectRole::Framing`, so Auto
 Frame still crops and the 9:16 output window is still there: the operator
@@ -238,28 +265,57 @@ removes the look without losing the shot or changing what the LED panel is fed.
 Every node's automation clock still advances in `Clean`, `Freeze` and `Black` —
 the chain is being kept warm behind a safe picture, not paused.
 
-### The FX/Clean dissolve
+### Transitions
 
-`FX` and `Clean` are the two ends of a mix, not two switch positions. Pressing
-either ramps `ProgramTransition` (`src/video/program_output.h`) over
-`kDefaultSeconds` — 0.35 s, eased at both ends — and the chain is handed the
-result as `effectMix`. Between the ends every enabled `EffectRole::Visual` node
-renders into `chain.wet` and the `crossfade` shader lays it back over the
-picture that node received, so the look dissolves out of PROGRAM instead of
-being cut out of it. `EffectRole::Framing` is never mixed: the shot must not
-drift or half-crop while the look fades.
+No button cuts. All four ramp over `Dissolve::kDefaultSeconds` — 0.35 s, eased
+at both ends — because an unannounced cut is what a fault looks like from the
+audience. `Dissolve` (`src/video/program_output.h`) is the shared ramp: it
+clamps rather than overshooting when a frame arrives late, eases because the
+ends are where the eye is looking, and reverses by keeping the picture on air
+and only turning the direction of travel round.
 
-Three consequences worth keeping:
+The four buttons are two different transitions, because they are two different
+kinds of change:
 
-- **The ends are free.** At `mix == 1` and `mix == 0` there is no mix pass at
-  all, so the cost — one extra fullscreen pass per visual node — is paid only
-  while a transition is actually running.
-- **Freeze and Black hold the ramp.** Nothing that moves is on air to dissolve,
+**FX ↔ Clean changes the picture, so it mixes inside the chain.**
+`ProgramTransition` ramps and the chain is handed the result as `effectMix`.
+Between the ends every enabled `EffectRole::Visual` node renders into
+`chain.wet` and the `crossfade` shader lays it back over the picture that node
+received, so the look dissolves out instead of being cut out.
+`EffectRole::Framing` is never mixed: the shot must not drift or half-crop
+while the look fades.
+
+**Freeze and Black replace the picture, so they mix at the output.**
+`ProgramOutput` dissolves between whole images, and the sources are live rather
+than snapshots: leaving FX for Freeze, the chain goes on producing frames into
+`program.live.*` and the audience watches a moving picture fade into a still
+of the moment the button was pressed. Effects and Clean are one source here,
+not two — dissolving them at both levels would fade the same change twice.
+
+Rules that fall out of it:
+
+- **The ends are free.** Settled FX, Freeze and Black each cost no mix pass at
+  all, at either level. The extra work — one pass per visual node in the chain,
+  one for the output — is paid only while a transition is running.
+- **The latched still stops moving exactly while a dissolve reads it**, which
+  is the same invariant as everywhere else here: never write the texture the
+  current pass samples. Any other time it tracks the chain, so a camera that
+  dies on the way back from Black freezes on the picture that was just live
+  rather than on one from before the fade.
+- **Re-aiming mid-dissolve starts from what is on air.** Straight back the way
+  it came reverses the ramp; anywhere else copies the composite to
+  `program.composite` and dissolves from that, because starting from either
+  original source would snap the picture back to one the operator has left.
+- **Freeze and Black hold the chain mix.** The look is not what the audience is
+  watching, so `ProgramTransition::update` only advances in `FX` and `Clean`
   and an operator who cut away mid-mix comes back to the picture they left.
-  `ProgramTransition::update` therefore only advances in `FX` and `Clean`.
-- **A missing `crossfade` shader costs the dissolve, never the frame.** The
-  chain resolves the mix resources once, before any node runs, and falls back
-  to whichever end it is nearest rather than dropping a node or a frame.
+- **Safety cuts.** The input-loss latch is a fault, not a gesture: the last
+  good picture has to be on the wall that frame, not in 0.35 s. So
+  `ProgramOutput` snaps when it latches `Freeze` itself, and dissolves only
+  when an operator changes the mode.
+- **A missing `crossfade` shader costs the transition, never the frame.** Both
+  levels resolve their mix resources before doing any work and fall back to a
+  cut — which is what the buttons did before.
 
 Start-up snaps: `--program clean` is already Clean on frame one, because there
 is no previous picture to dissolve from.
@@ -472,6 +528,7 @@ src/decklink/decklink_discovery.h decklink_capture.h
 src/decklink/decklink_discovery_win.cpp decklink_discovery_stub.cpp
 src/decklink/decklink_capture_stub.cpp
 src/platform/Window.h Display.h OutputWindow.h
+src/platform/display_routing.h/.cpp
 src/platform/mac/MacWindow.mm MacDisplay.mm
 src/platform/win32/Win32Window.cpp Win32OutputWindow.cpp Win32MessageHook.h
 src/gpu/Rhi.h Backend.h EffectConstants.h HalfFloat.h ShaderPaths.h/.cpp
@@ -504,6 +561,8 @@ cmake/decklink.cmake
 tests/parameter_automation_test.cpp tests/framing_test.cpp
 tests/source_mapping_test.cpp tests/source_health_test.cpp
 tests/program_output_test.cpp
+tests/display_routing_test.cpp tests/app_output_lifecycle_test.cpp
+tests/display_changes_mac_test.mm
 
 shaders/hlsl/   common.hlsli fullscreen.hlsl test_pattern.hlsl
                 passthrough.hlsl rgb_split.hlsl pixelate.hlsl fm_raster.hlsl

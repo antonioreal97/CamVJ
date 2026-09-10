@@ -710,6 +710,7 @@ bool MetalDevice::initialize(Window* window, uint32_t processingWidth, uint32_t 
 
         view.layer      = layer_;
         view.wantsLayer = YES;
+        previewView_    = view;
 
         onWindowResized(window->width(), window->height());
     }
@@ -748,6 +749,7 @@ void MetalDevice::shutdown()
     uiCommands_         = nil;
     processingCommands_ = nil;
     drawable_           = nil;
+    previewView_        = nil;
     layer_              = nil;
     queue_              = nil;
     device_             = nil;
@@ -761,6 +763,13 @@ bool MetalDevice::beginFrame()
     }
 
     if (!layer_)
+    {
+        return false;
+    }
+
+    // A covered/hidden operator window may wait for a drawable until Metal's
+    // timeout. It must not hold the display or webcam feed behind that wait.
+    if ((previewView_.window.occlusionState & NSWindowOcclusionStateVisible) == 0)
     {
         return false;
     }

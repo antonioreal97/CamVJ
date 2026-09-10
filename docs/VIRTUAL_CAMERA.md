@@ -135,6 +135,12 @@ never inside one. A worker thread owns the extension connection, because
 be seen as a dropped frame. A stopping output is kept alive until its worker
 reports `Stopped`, so no frame is still travelling when the stream closes.
 
+Webcam lifecycle and PROGRAM processing continue when the operator window is
+minimised, hidden or has no preview drawable, even with no display output.
+When no display is pacing the windowed loop, a 16.683 ms software cadence keeps
+the hidden sender from flooding the GPU queue. This does not change the stream
+format or provide genlock. Headless retains its unpaced diagnostic loop.
+
 ---
 
 ## Verifying

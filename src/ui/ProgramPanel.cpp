@@ -34,12 +34,11 @@ void drawProgramPanel(UiFrameState& state)
     char caption[24];
     if (state.programMixing)
     {
-        // How far along the dissolve is, not how much chain is left: the
-        // operator asked for a mode and wants to know when they have it.
-        const float progress =
-            current == ProgramMode::Clean ? 1.0f - state.programMix : state.programMix;
+        // How far along the dissolve is, not how much of the old picture is
+        // left: the operator asked for a mode and wants to know when they
+        // have it.
         std::snprintf(caption, sizeof(caption), "%s %.0f%%", programModeName(current),
-                      static_cast<double>(progress) * 100.0);
+                      static_cast<double>(state.programProgress) * 100.0);
     }
     else
     {

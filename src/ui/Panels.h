@@ -63,10 +63,16 @@ struct UiFrameState
     bool*               requestWebcamStart = nullptr;
     bool*               requestWebcamStop  = nullptr;
 
-    // Where the FX/Clean dissolve stands: 1 is the full chain, 0 Clean. The
-    // panel shows it because an operator who pressed a button needs to see
-    // that the machine is on its way, not stuck.
+    // How much of the look is in the chain: 1 the full chain, 0 Clean. The FX
+    // preview bus reads it, because a ramped-out chain honestly shows no look
+    // and the operator would otherwise think their effect is broken.
     float              programMix      = 1.0f;
+
+    // How far PROGRAM has travelled toward the mode lit on the buttons, 0 to 1
+    // — whichever of the two dissolves is running. The panel shows it because
+    // an operator who pressed a button needs to see that the machine is on its
+    // way, not stuck.
+    float              programProgress = 1.0f;
     bool               programMixing   = false;
     bool*              operationLocked = nullptr;
     bool               inputHealthy    = false;

@@ -99,6 +99,8 @@ set(ATEMFX_SOURCES
     src/core/Version.h
 
     src/platform/Display.h
+    src/platform/display_routing.cpp
+    src/platform/display_routing.h
     src/platform/OutputWindow.h
     src/platform/Window.h
 
@@ -377,6 +379,17 @@ if(BUILD_TESTING)
         target_compile_options(source_mapping_test PRIVATE -Wall -Wextra)
     endif()
     add_test(NAME source_mapping COMMAND source_mapping_test)
+
+    add_executable(display_routing_test
+        tests/display_routing_test.cpp
+        src/platform/display_routing.cpp)
+    target_include_directories(display_routing_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    if(MSVC)
+        target_compile_options(display_routing_test PRIVATE /W4 /permissive- /utf-8)
+    else()
+        target_compile_options(display_routing_test PRIVATE -Wall -Wextra)
+    endif()
+    add_test(NAME display_routing COMMAND display_routing_test)
 
     add_executable(source_health_test
         tests/source_health_test.cpp

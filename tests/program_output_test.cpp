@@ -216,6 +216,20 @@ bool solid(const GpuTexture* texture, Pixel expected)
                                          [expected](Pixel actual) { return actual == expected; });
 }
 
+// Renders until PROGRAM has arrived at the mode on the buttons. Every mode is
+// a dissolve now, so a test that wants the destination has to let it land —
+// the same handful of frames the operator waits through.
+GpuTexture* settle(Fixture& f, GpuTexture* frame, bool healthy)
+{
+    GpuTexture* result = f.output.render(f.context, frame, healthy, f.mode);
+    for (int guard = 0; guard < 64 && f.output.transitioning(); ++guard)
+    {
+        result = f.output.render(f.context, frame, healthy, f.mode);
+    }
+    expect(!f.output.transitioning(), "a dissolve always finishes in bounded time");
+    return result;
+}
+
 bool sameCrop(const FramingRect& a, const FramingRect& b)
 {
     return near(a.centerX, b.centerX) && near(a.centerY, b.centerY) &&
@@ -277,23 +291,37 @@ void checkFreezeAndBlackPreserveTheImage()
     scratch.fill(kNext);
     static_cast<TestTexture&>(f.targets.scratch(1)).fill(kBlack);
     f.mode = ProgramMode::Freeze;
+
+    // The still is chosen the instant the button is pressed. Chain frames keep
+    // arriving all through the dissolve — that is the picture being faded away
+    // from — but none of them may reach the one being faded to.
+    GpuTexture* mixing = f.output.render(f.context, &scratch, true, f.mode);
+    expect(f.output.transitioning() && mixing != held && mixing != &scratch,
+           "Freeze dissolves off the live picture instead of cutting to the still");
+    expect(held && static_cast<TestTexture&>(*held).pixels == expected,
+           "new chain frames cannot overwrite a frozen PROGRAM");
+
+    expect(settle(f, &scratch, true) == held &&
+               held && static_cast<TestTexture&>(*held).pixels == expected,
+           "the dissolve lands on exactly the frame that was live when Freeze was pressed");
     const int drawsBeforeFreeze = f.pass.draws;
     expect(f.output.render(f.context, &scratch, true, f.mode) == held &&
-               held && static_cast<TestTexture&>(*held).pixels == expected,
-           "new chain frames cannot overwrite a frozen PROGRAM");
-    expect(f.pass.draws == drawsBeforeFreeze, "Freeze reuses its stable image without another copy");
+               f.pass.draws == drawsBeforeFreeze,
+           "settled Freeze reuses its stable image without another copy");
 
     f.mode = ProgramMode::Black;
-    GpuTexture* black = f.output.render(f.context, &scratch, true, f.mode);
+    GpuTexture* black = settle(f, &scratch, true);
     expect(black != held && solid(black, kBlack), "Black uses a separate opaque safety image");
+    const int drawsBeforeBlack = f.pass.draws;
     f.output.render(f.context, nullptr, false, f.mode);
-    expect(f.mode == ProgramMode::Black, "input loss cannot override an operator's Black");
+    expect(f.mode == ProgramMode::Black && f.pass.draws == drawsBeforeBlack,
+           "loss cannot override an operator's Black, and settled Black costs no pass either");
     f.mode = ProgramMode::Freeze;
-    expect(f.output.render(f.context, &scratch, true, f.mode) == held &&
+    expect(settle(f, &scratch, true) == held &&
                held && static_cast<TestTexture&>(*held).pixels == expected,
            "Freeze after Black recalls the exact last PROGRAM before Black");
     f.mode = ProgramMode::Effects;
-    expect(solid(f.output.render(f.context, &scratch, true, f.mode), kNext),
+    expect(solid(settle(f, &scratch, true), kNext),
            "explicit FX replaces the held image with the current camera picture");
 }
 
@@ -320,7 +348,7 @@ void checkLossLatchesUntilManualResume()
                            f.mode == ProgramMode::Freeze,
                        "camera recovery cannot take moving video live by itself");
             f.mode = liveMode;
-            expect(solid(f.output.render(f.context, &input, true, f.mode), kNext),
+            expect(solid(settle(f, &input, true), kNext),
                    "the operator can resume the chosen live mode after recovery");
         }
     }
@@ -340,13 +368,17 @@ void checkHeldFramingMetadata()
     for (ProgramMode mode : {ProgramMode::Freeze, ProgramMode::Black})
     {
         f.mode = mode;
-        f.context.framing = {};
-        f.context.framingActive = false;
-        f.context.outputAspect = 16.0f / 9.0f;
-        f.output.render(f.context, &input, true, f.mode);
-        expect(sameCrop(f.context.framing, portraitCrop) && f.context.framingActive &&
-                   near(f.context.outputAspect, 9.0f / 16.0f),
-               "held preview metadata cannot follow a live crop or aspect change behind Freeze/Black");
+        for (int frame = 0; frame < 4; ++frame)
+        {
+            f.context.framing = {};
+            f.context.framingActive = false;
+            f.context.outputAspect = 16.0f / 9.0f;
+            f.output.render(f.context, &input, true, f.mode);
+            expect(sameCrop(f.context.framing, portraitCrop) && f.context.framingActive &&
+                       near(f.context.outputAspect, 9.0f / 16.0f),
+                   "held preview metadata cannot follow a live crop or aspect change behind "
+                   "Freeze/Black, during the dissolve or after it");
+        }
     }
 
     f.mode = ProgramMode::Clean;
@@ -490,12 +522,14 @@ void checkCalibrationBypassPreservesTheShow()
         f.context.framingActive = false;
         f.context.outputAspect = 16.0f / 9.0f;
         const int drawsBefore = f.pass.draws;
+        const int mixesBefore = f.pass.mixes;
         GpuTexture& result = chain.process(f.context, chart, 0.5f, true);
         ++frameNumber;
         expect(&result == &chart && chart.pixels == originalChart,
                "calibration preserves every source pixel even during an FX/Clean dissolve");
         expect(framingEffect->calls == 1 && visualEffect->calls == 1 &&
-                   disabledEffect->calls == 0 && f.pass.draws == drawsBefore && f.pass.mixes == 0,
+                   disabledEffect->calls == 0 && f.pass.draws == drawsBefore &&
+                   f.pass.mixes == mixesBefore,
                "calibration runs no crop, visual effect or mix pass");
         expect(!f.context.framingActive && sameCrop(f.context.framing, {}) &&
                    near(f.context.outputAspect, 16.0f / 9.0f),
@@ -514,7 +548,7 @@ void checkCalibrationBypassPreservesTheShow()
                "calibration leaves the operator's enabled effect selection intact");
 
         f.mode = mode;
-        GpuTexture* program = f.output.render(f.context, &result, true, f.mode);
+        GpuTexture* program = settle(f, &result, true);
         expect(f.mode == mode, "a calibration source never selects a PROGRAM mode");
         if (mode == ProgramMode::Effects)
         {
@@ -743,6 +777,147 @@ void checkChainDissolvesOnlyVisualEffects()
     }
 }
 
+void checkEveryModeDissolves()
+{
+    // A whole ramp in two frames, so a single render lands on an exact,
+    // readable point of the fade instead of somewhere near it.
+    const float halfRamp    = Dissolve::kDefaultSeconds * 0.5f;
+    const float quarterRamp = Dissolve::kDefaultSeconds * 0.25f;
+    const float quarterEase = 0.15625f;   // smoothstep(0.25)
+
+    {
+        Fixture f;
+        f.context.deltaTime = halfRamp;
+        TestTexture live;
+        live.fill(kFirst);
+        GpuTexture* held = f.output.render(f.context, &live, true, f.mode);
+        expect(solid(held, kFirst) && !f.output.transitioning(),
+               "a live mode that never changed is not a transition");
+
+        // The still is latched at the press; the chain goes on producing a
+        // different picture, and that is what the audience watches fade out.
+        f.mode = ProgramMode::Freeze;
+        live.fill(kNext);
+        GpuTexture* midway = f.output.render(f.context, &live, true, f.mode);
+        expect(f.output.transitioning() && near(f.output.progress(), 0.5) &&
+                   solid(midway, blend(kNext, kFirst, 0.5f)),
+               "Freeze fades the still up over a picture that is still moving");
+        expect(settle(f, &live, true) == held && solid(held, kFirst),
+               "the fade lands on the frame that was live when Freeze was pressed");
+
+        f.mode = ProgramMode::Effects;
+        expect(solid(settle(f, &live, true), kNext),
+               "coming back from Freeze arrives at the picture the chain is making now");
+
+        f.mode = ProgramMode::Black;
+        expect(solid(f.output.render(f.context, &live, true, f.mode), blend(kNext, kBlack, 0.5f)),
+               "Black fades down rather than cutting the wall to nothing");
+        expect(solid(settle(f, &live, true), kBlack), "and it arrives at opaque black");
+
+        f.mode = ProgramMode::Freeze;
+        expect(solid(f.output.render(f.context, &live, true, f.mode), blend(kBlack, kNext, 0.5f)),
+               "Freeze out of Black fades the still up from black");
+    }
+
+    // FX and Clean differ by a chain mix. Fading them here as well would fade
+    // the same change twice.
+    {
+        Fixture f;
+        TestTexture live;
+        live.fill(kFirst);
+        f.output.render(f.context, &live, true, f.mode);
+        const int mixesBefore = f.pass.mixes;
+        f.mode = ProgramMode::Clean;
+        GpuTexture* out = f.output.render(f.context, &live, true, f.mode);
+        expect(!f.output.transitioning() && f.pass.mixes == mixesBefore && solid(out, kFirst),
+               "Clean is a chain mix, not an output dissolve");
+        f.mode = ProgramMode::Effects;
+        f.output.render(f.context, &live, true, f.mode);
+        expect(!f.output.transitioning() && f.pass.mixes == mixesBefore,
+               "and neither is going back to FX");
+    }
+
+    // Changing your mind mid-fade, both ways round. Neither may jump the
+    // picture: a transition the operator interrupts is still on air.
+    {
+        Fixture f;
+        TestTexture live;
+        live.fill(kFirst);
+        f.output.render(f.context, &live, true, f.mode);
+        live.fill(kNext);
+        f.context.deltaTime = quarterRamp;
+        f.mode = ProgramMode::Black;
+        GpuTexture* onAir = f.output.render(f.context, &live, true, f.mode);
+        expect(solid(onAir, blend(kNext, kBlack, quarterEase)), "a quarter of the way down");
+
+        // Same instant, only the button changed.
+        f.context.deltaTime = 0.0f;
+        f.mode = ProgramMode::Effects;
+        expect(solid(f.output.render(f.context, &live, true, f.mode),
+                     blend(kNext, kBlack, quarterEase)),
+               "turning straight back keeps the picture and only reverses the ramp");
+        expect(f.output.transitioning(), "and it still has the rest of the way to travel");
+    }
+
+    {
+        Fixture f;
+        TestTexture live;
+        live.fill(kFirst);
+        f.output.render(f.context, &live, true, f.mode);
+        live.fill(kNext);
+        f.context.deltaTime = quarterRamp;
+        f.mode = ProgramMode::Black;
+        f.output.render(f.context, &live, true, f.mode);
+
+        // Not back the way it came, but somewhere else entirely. What is on air
+        // is a blend of two pictures, so the blend is what has to be faded away
+        // from — anything else snaps back to a source already left.
+        f.context.deltaTime = 0.0f;
+        f.mode = ProgramMode::Freeze;
+        expect(solid(f.output.render(f.context, &live, true, f.mode),
+                     blend(kNext, kBlack, quarterEase)),
+               "re-aiming mid-fade dissolves away from the composite on air");
+        // Freeze grabs the picture that was on its way out, not one from
+        // before the fade started: nothing was reading the still while Black
+        // was the target, so it went on tracking the live chain.
+        f.context.deltaTime = quarterRamp;
+        expect(solid(settle(f, &live, true), kNext),
+               "and arrives at the picture that was live when Freeze was pressed");
+    }
+
+    // Safety is not a gesture. The last good picture has to be there on the
+    // frame the input dies, not 0.35 s later.
+    {
+        Fixture f;
+        TestTexture live;
+        live.fill(kFirst);
+        f.output.render(f.context, &live, true, f.mode);
+        live.fill(kNext);
+        GpuTexture* latched = f.output.render(f.context, nullptr, false, f.mode);
+        expect(f.mode == ProgramMode::Freeze && !f.output.transitioning() && solid(latched, kFirst),
+               "input loss cuts to the held picture, it never fades to it");
+    }
+
+    // A missing mix shader costs the transition, never the button.
+    {
+        Fixture f;
+        f.shaders.crossfadeAvailable = false;
+        std::string error;
+        expect(f.output.initialize(f.context, error), "PROGRAM restarts without a mix shader");
+        TestTexture live;
+        live.fill(kFirst);
+        f.output.render(f.context, &live, true, f.mode);
+        for (ProgramMode mode : {ProgramMode::Freeze, ProgramMode::Black, ProgramMode::Effects})
+        {
+            f.mode = mode;
+            GpuTexture* out = f.output.render(f.context, &live, true, f.mode);
+            expect(!f.output.transitioning() && f.pass.mixes == 0 &&
+                       solid(out, mode == ProgramMode::Black ? kBlack : kFirst),
+                   "without a mix shader every mode cuts, which is what it did before");
+        }
+    }
+}
+
 } // namespace
 
 int main()
@@ -755,6 +930,7 @@ int main()
     checkCalibrationBypassPreservesTheShow();
     checkTransitionRamp();
     checkChainDissolvesOnlyVisualEffects();
+    checkEveryModeDissolves();
     std::printf("program output: %d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }
