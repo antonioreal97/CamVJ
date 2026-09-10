@@ -20,6 +20,27 @@ namespace atemfx {
 
 namespace {
 
+std::atomic<bool> g_displayChanges{false};
+id<NSObject>      g_displayObserver = nil;
+
+void ensureDisplayWatch()
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        // The watch follows the process, not an output window: reconnects must
+        // still be detected after the lost output has been closed. The block
+        // captures no application or window owner that could become dangling.
+        g_displayObserver = [[NSNotificationCenter defaultCenter]
+            addObserverForName:NSApplicationDidChangeScreenParametersNotification
+                        object:nil
+                         queue:nil
+                    usingBlock:^(NSNotification* notification) {
+                        (void)notification;
+                        g_displayChanges.store(true, std::memory_order_relaxed);
+                    }];
+    });
+}
+
 // NSScreen's own number, which is the CGDirectDisplayID.
 CGDirectDisplayID screenNumber(NSScreen* screen)
 {
@@ -47,6 +68,7 @@ std::vector<DisplayInfo> enumerateDisplays()
 
     @autoreleasepool
     {
+        ensureDisplayWatch();
         NSArray<NSScreen*>* screens = [NSScreen screens];
 
         // The first screen is the one carrying the menu bar, not necessarily
@@ -74,6 +96,11 @@ std::vector<DisplayInfo> enumerateDisplays()
             const CGFloat scale = [screen backingScaleFactor];
             info.width          = static_cast<uint32_t>(frame.size.width * scale);
             info.height         = static_cast<uint32_t>(frame.size.height * scale);
+            info.desktopX       = static_cast<int32_t>(frame.origin.x);
+            info.desktopY       = static_cast<int32_t>(frame.origin.y);
+            info.desktopWidth   = static_cast<uint32_t>(frame.size.width);
+            info.desktopHeight  = static_cast<uint32_t>(frame.size.height);
+            info.scaleFactor    = static_cast<float>(scale);
 
             CGDisplayModeRef mode = CGDisplayCopyDisplayMode(number);
             if (mode)
@@ -96,6 +123,11 @@ std::vector<DisplayInfo> enumerateDisplays()
     }
 
     return displays;
+}
+
+bool consumeDisplayChanges()
+{
+    return g_displayChanges.exchange(false, std::memory_order_relaxed);
 }
 
 // ---------------------------------------------------------------------------

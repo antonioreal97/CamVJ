@@ -243,6 +243,17 @@ começa na hora. **Stop output** e a opção **No output** encerram; a tecla
 tela onde está a interface, a janela cobre tudo, inclusive o botão de parar.
 Por linha de comando, `--output 2` já começa enviando.
 
+Conexões e desconexões atualizam a lista automaticamente, inclusive com
+**Operation lock** ligado. Se a tela que recebe PROGRAM desaparecer ou mudar
+de resolução, taxa, escala ou posição no desktop, o envio para ela é encerrado
+e OUTPUT mostra como retomar. Reconectar o cabo não reabre o envio: escolha a
+tela novamente. A imagem de PROGRAM e a webcam virtual continuam independentes
+dessa conexão.
+
+Minimizar ou cobrir a janela do operador mantém o telão e a webcam virtual
+funcionando. Quando só a webcam está ativa e o preview está oculto, o loop usa
+um intervalo de aproximadamente 16,68 ms para evitar sobrecarregar a GPU.
+
 O processamento é sempre 1920×1080. Se a tela tiver outra proporção, a imagem
 entra inteira com barras pretas (*fit*) — nunca esticada, porque distorção é o
 tipo de erro que ninguém consegue corrigir mais adiante na cadeia.
@@ -280,6 +291,28 @@ está no telão agora e como eu tiro isso de lá em um movimento**. O painel
 recortando e o formato 9:16 continua onde estava. Você tira o *look* sem
 perder o plano e sem mudar o que o processador de LED recebe — que é
 justamente o que se quer quando o efeito não combinou com o momento.
+
+**Nenhum dos quatro botões corta.** Todos dissolvem em 0,35 s, com entrada e
+saída suavizadas, e o painel mostra o quanto já andou (`CLEAN 62%`). Quem está
+assistindo lê um corte não anunciado como defeito; lê uma dissolução como
+decisão.
+
+FX e Clean *mudam* a imagem, então a mistura acontece dentro da cadeia: o
+*look* se dissolve efeito por efeito. O enquadramento nunca entra na mistura —
+o plano não pode escorregar nem ficar meio recortado enquanto o efeito sai.
+
+Freeze e Black *substituem* a imagem, então a mistura acontece na saída, entre
+quadros inteiros. Ao apertar Freeze, a câmera continua entrando e a cadeia
+continua trabalhando: o telão vê a imagem em movimento se dissolver dentro do
+congelado do instante em que você apertou. Black desce igual, e sobe de volta
+igual.
+
+Se você mudar de ideia no meio, a transição continua de onde a imagem está —
+voltando pelo mesmo caminho, ou saindo da mistura que está no ar se você
+escolher um terceiro botão.
+
+**Queda de sinal corta, não dissolve.** Segurança não é gesto: quando a câmera
+some, o último quadro bom tem de estar no telão naquele quadro, não em 0,35 s.
 
 **Freeze e Black não param a máquina.** A câmera continua entrando, o tracking
 continua seguindo e a cadeia continua preparando o próximo plano atrás da

@@ -92,8 +92,9 @@ Implementação em validação, sem abrir novo milestone.
 
 - `src/video/program_output.h/.cpp`: `ProgramMode` (FX / Clean / Freeze /
   Black) e `ProgramOutput`, com alvos persistentes próprios
-  (`program.last`, `program.black`, `program.pixel` 1×1). É política de
-  saída, não efeito — preto e hold têm de funcionar sem entrada nenhuma.
+  (`program.live.a/.b`, `program.black`, `program.mix`, `program.composite`,
+  `program.pixel` 1×1). É política de saída, não efeito — preto e hold têm de
+  funcionar sem entrada nenhuma.
 - `src/video/source_health.h/.cpp`: `SourceCaptureMonitor` (thread de
   captura) e `SourceHealthMonitor` (thread de render). `Stale` = 0,5 s sem
   quadro novo. Repeats contam ticks de render que reusaram o mesmo quadro —
@@ -101,13 +102,23 @@ Implementação em validação, sem abrir novo milestone.
 - `EffectChain::process(ctx, in, mix)` com `mix == 0` pula `EffectRole::Visual`
   e mantém `EffectRole::Framing`: Clean tira o look e preserva enquadramento
   e 9:16.
-- `ProgramTransition` (mesmo header) faz FX↔Clean virar dissolução de 0,35 s
-  com suavização nas duas pontas. Entre as pontas cada nó visual renderiza em
-  `chain.wet` e o shader `crossfade` devolve por cima da imagem que aquele nó
-  recebeu — um passe extra por nó, pago só durante a transição. Framing nunca
-  entra na mistura. Freeze/Black seguram a rampa; start-up dá `snapTo`.
-  Sem o shader `crossfade` a cadeia cai para a ponta mais próxima: perde-se a
-  dissolução, nunca o quadro.
+- **Nenhum dos quatro botões corta.** Rampa compartilhada `Dissolve` (0,35 s,
+  suavizada nas duas pontas, sem overshoot em quadro atrasado, reversível sem
+  mexer na imagem no ar). São dois níveis porque são dois tipos de mudança:
+  - FX↔Clean *mudam* a imagem → `ProgramTransition` dá o `effectMix` e cada nó
+    visual renderiza em `chain.wet` para o `crossfade` devolver por cima da
+    imagem que aquele nó recebeu. Framing nunca entra na mistura.
+  - Freeze/Black *substituem* a imagem → `ProgramOutput` dissolve entre quadros
+    inteiros, com fontes **vivas**, não snapshots: sair de FX para Freeze
+    dissolve a imagem em movimento dentro do congelado do instante do aperto.
+    Effects e Clean são um só `ProgramSource`, então nada dissolve duas vezes.
+  O still fica preso só enquanto um dissolve o lê (mesma invariante de sempre:
+  não escrever a textura que o passe está lendo); fora disso acompanha a
+  cadeia. Reaimar no meio inverte a rampa, ou dissolve a partir de
+  `program.composite`. Modos assentados não pagam passe nenhum. Queda de
+  entrada **corta** (segurança não é gesto). Start-up dá `snapTo`. Sem o
+  shader `crossfade` tudo cai para corte: perde-se a transição, nunca o
+  quadro.
 - Painel OUTPUT: quatro botões, desenhados **antes** do `if (!expanded)` —
   recuperação não pode depender de painel aberto. Continuam disponíveis com
   Operation lock ligado.
@@ -117,9 +128,11 @@ Implementação em validação, sem abrir novo milestone.
 - CLI `--program fx|clean|freeze|black`; modo inválido é erro de uso (exit 2).
 - CTests novos: `source_health` e `program_output` (latch dos dois modos ao
   vivo, Black não sobreposto, framing do quadro segurado, Clean com
-  automações andando, rampa da dissolução e mistura por nó visual).
+  automações andando, rampa da dissolução, mistura por nó visual, e o
+  dissolve de saída: os quatro botões, FX↔Clean *não* dissolvendo no nível da
+  saída, reversão e reaimar no meio, corte na queda, corte sem shader).
 
-Verificado: build limpo, `ctest` 5/5, gate headless 200 frames (Apple M4,
+Verificado: build limpo, `ctest` 6/6, gate headless 200 frames (Apple M4,
 0,761 ms GPU). Dumps PPM por modo com `rgb_split` ligado: FX traz a franja
 de cor, Clean sai igual a rodar só `auto_frame` (look fora, recorte de pé),
 Black é zero em todo o quadro e Freeze sem quadro anterior também é preto.
@@ -127,9 +140,18 @@ Dissolução verificada no Metal de verdade (não só no RHI falso do teste):
 dumps com `mirror` em mix 0 / 0,5 / 1, mascarando o marcador em movimento por
 duas rodadas de cada ponta — 2,06 M pixels estáveis, metade deles alterada
 pelo efeito, e o mix 0,5 bate o ponto médio com erro máximo de 0,5 (só
-arredondamento de 8 bits). `--check-shaders`: 14 shaders, 0 falhas.
-**Não verificado:** derrubar a câmera de verdade (FX30 no USB) — este binário
-não tem permissão de câmera aqui; e qualquer coisa no Windows.
+arredondamento de 8 bits). O dissolve de **saída** também: `deltaTime` fixo em
+1/4 da rampa por sonda temporária e a troca para Black disparada em quadros
+diferentes, medindo os quatro pontos da curva — 0,15625 / 0,5 / 0,84375 / 1,0
+(`smoothstep`), todos os 2,07 M pixels estáveis dentro de 1/255 em cada ponto,
+e o último chega em preto exato. `--check-shaders`: 14 shaders, 0 falhas.
+**Não verificado:** a mistura *específica* do Freeze no Metal — os dois lados
+só diferem no marcador em movimento, que é justamente o que a máscara de duas
+rodadas descarta; o que a GPU precisava provar (as duas texturas certas
+ligadas e a mistura linear) está provado pelo caminho do Black, e o resto está
+no teste com RHI falso, onde dá para controlar cada pixel. Também não
+verificado: derrubar a câmera de verdade (FX30 no USB) — este binário não tem
+permissão de câmera aqui; e qualquer coisa no Windows.
 
 ## Extensão solicitada: PROGRAM como webcam
 

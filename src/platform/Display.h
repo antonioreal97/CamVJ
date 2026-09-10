@@ -24,6 +24,15 @@ struct DisplayInfo
     uint32_t width  = 0;
     uint32_t height = 0;
 
+    // Logical desktop geometry used to invalidate an output route when its
+    // window would move or change backing scale. The origin is platform-defined;
+    // compare snapshots on the same platform rather than converting coordinates.
+    int32_t  desktopX      = 0;
+    int32_t  desktopY      = 0;
+    uint32_t desktopWidth  = 0;
+    uint32_t desktopHeight = 0;
+    float    scaleFactor   = 1.0f;
+
     // Zero when the platform does not report one.
     double refreshHz = 0.0;
 
@@ -34,5 +43,11 @@ struct DisplayInfo
 
 // Never opens a window and never changes display configuration.
 std::vector<DisplayInfo> enumerateDisplays();
+
+// True once after the OS reports a display attachment, removal or mode change.
+// Poll after the initial enumeration. This only consumes the pending flag and
+// never allocates, logs, enumerates or opens a window. Call between frames,
+// including while the operator window is hidden, then rebuild the display list.
+bool consumeDisplayChanges();
 
 } // namespace atemfx

@@ -277,6 +277,15 @@ gravação ou streaming agora.
 - **Clean não é bypass geral**: `EffectChain::process` pula `EffectRole::Visual`
   e mantém `EffectRole::Framing`. O operador tira o look sem perder o plano
   nem mudar o formato 9:16 que o processador de LED recebe.
+- **Nenhum dos quatro botões de PROGRAM corta.** Corte não anunciado o público
+  lê como defeito. Rampa compartilhada (`Dissolve`, 0,35 s, suavizada) em dois
+  níveis, porque são dois tipos de mudança: FX/Clean *mudam* a imagem e
+  misturam dentro da cadeia; Freeze/Black *substituem* a imagem e misturam na
+  saída, entre quadros inteiros. Effects e Clean são uma fonte só na saída —
+  senão a mesma mudança dissolveria duas vezes. As fontes do dissolve de saída
+  são vivas, não snapshots: sair de FX para Freeze dissolve a imagem em
+  movimento dentro do congelado do instante do aperto. Queda de sinal **corta**
+  — segurança não é gesto.
 - Freeze e Black não param a máquina: captura, tracking e cadeia continuam
   preparando o próximo plano, e a saída segue apresentando todo frame — o
   telão vê imagem parada, nunca sinal morto. As automações continuam andando.

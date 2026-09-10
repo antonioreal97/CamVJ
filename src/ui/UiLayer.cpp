@@ -224,10 +224,9 @@ void drawHeader(UiFrameState& state, ImVec2 origin, ImVec2 size)
     char modeLabel[32];
     if (state.programMixing)
     {
-        const float progress =
-            headerMode == ProgramMode::Clean ? 1.0f - state.programMix : state.programMix;
         std::snprintf(modeLabel, sizeof(modeLabel), "PROGRAM  %s %.0f%%",
-                      programModeName(headerMode), static_cast<double>(progress) * 100.0);
+                      programModeName(headerMode),
+                      static_cast<double>(state.programProgress) * 100.0);
     }
     else
     {

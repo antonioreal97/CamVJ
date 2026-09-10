@@ -161,6 +161,15 @@ client of an installed camera extension rather than one this build installs —
 so calls list it under OBS's name. Design and limits in
 [VIRTUAL_CAMERA.md](VIRTUAL_CAMERA.md). Windows is not implemented.
 
+Operator reliability follow-up: automatic display-change handling invalidates
+lost or reconfigured routes without selecting another screen or reopening a
+returning one. Stable IDs preserve active/pending selections across list
+changes. Webcam-only PROGRAM continues with an unavailable preview; output
+lifecycle runs before preview acquisition and the hidden windowed loop has a
+bounded software cadence. Portable route/lifecycle checks and a macOS
+notification check cover these paths; cable pulls against the intended LED
+processor and Windows validation remain separate acceptance work.
+
 Like the extensions before it, this is bounded work on the linear chain. It
 does not open M2, M3 or M5, and it does not reduce what M1 owes.
 

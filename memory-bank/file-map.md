@@ -37,7 +37,7 @@ CamVJ/
 │   │   ├── vhs.hlsl             # artefatos de fita: wobble, croma, dropouts
 │   │   ├── crt.hlsl             # scanlines + aperture grille, sem bloom
 │   │   ├── mirror.hlsl
-│   │   ├── crossfade.hlsl       # dissolução FX↔Clean, wet t0 / dry t1
+│   │   ├── crossfade.hlsl       # dissolve (cadeia e saída), wet t0 / dry t1
 │   │   └── auto_frame.hlsl      # recorte do enquadramento
 │   └── metal/
 │       ├── common.metal         # prepended em todo fragment
@@ -52,7 +52,7 @@ CamVJ/
 │       ├── vhs.metal
 │       ├── crt.metal
 │       ├── mirror.metal
-│       ├── crossfade.metal      # dissolução FX↔Clean, wet t0 / dry t1
+│       ├── crossfade.metal      # dissolve (cadeia e saída), wet t0 / dry t1
 │       └── auto_frame.metal
 ├── src/
 │   ├── main.cpp
@@ -72,7 +72,9 @@ CamVJ/
 │   │                 DeckLinkSource.h/.cpp      # seam VideoSource, sem captura
 │   │                 source_health.h/.cpp       # Live/Stale/Waiting da fonte
 │   │                 program_output.h/.cpp      # FX/Clean/Freeze/Black + latch
-│   │                                            # + ProgramTransition (dissolução)
+│   │                                            # + Dissolve (rampa compartilhada),
+│   │                                            # ProgramTransition (cadeia) e o
+│   │                                            # dissolve de saída entre quadros
 │   │                 virtual_camera.h           # PROGRAM como webcam (interface)
 │   │                 virtual_camera_stub.cpp    # Windows: sem câmera virtual
 │   │                 mac/virtual_camera_mac.mm  # cliente do sink CoreMediaIO
@@ -101,6 +103,7 @@ CamVJ/
 │                     source_mapping_test.cpp        # clique/overlay do Pick
 │                     source_health_test.cpp         # sinal, fps, repeats
 │                     program_output_test.cpp        # modos de PROGRAM + perda
+│                                                    # + os dois dissolves
 └── assets/files/    identidade CamVJ (SVG + IDENTIDADE.md)
 ```
 

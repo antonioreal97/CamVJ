@@ -1,8 +1,10 @@
 #include "app/App.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <thread>
 #include <vector>
 
 #include "core/Log.h"
@@ -10,6 +12,7 @@
 #include "effects/BuiltinEffects.h"
 #include "effects/EffectRegistry.h"
 #include "gpu/Backend.h"
+#include "platform/display_routing.h"
 #include "tracking/source_mapping.h"
 
 namespace atemfx {
@@ -187,6 +190,7 @@ bool App::initialize(const AppOptions& options)
 
             if (index < 0)
             {
+                outputStatus_ = "Requested display unavailable. Select an output to send PROGRAM.";
                 ATEMFX_LOG_WARN("Unknown display '%s'; starting with no output",
                                 options_.outputDisplayId.c_str());
             }
@@ -595,33 +599,23 @@ void App::serviceOutput()
         requestOutputClose_ = true;
     }
 
-    if (requestDisplayRescan_)
+    // Consume even on a manual rescan, so the same event does not trigger
+    // another enumeration on the next frame.
+    const bool displaysChanged = consumeDisplayChanges();
+    DisplayRouteLoss routeLoss = DisplayRouteLoss::None;
+    if (requestDisplayRescan_ || displaysChanged)
     {
         requestDisplayRescan_ = false;
+        auto refreshed = enumerateDisplays();
+        const auto routing = reconcileDisplayRouting(
+            displays_, refreshed, currentDisplay_, requestedDisplay_);
+        displays_ = std::move(refreshed);
+        currentDisplay_ = routing.selected;
+        requestedDisplay_ = routing.requested;
+        routeLoss = routing.loss;
 
-        const std::string liveId =
-            (currentDisplay_ >= 0 && currentDisplay_ < static_cast<int>(displays_.size()))
-                ? displays_[static_cast<std::size_t>(currentDisplay_)].id
-                : std::string();
-
-        displays_ = enumerateDisplays();
-
-        // The list is rebuilt, so the index into it is meaningless until the
-        // live display is found again. Unplugged mid-show, the output goes.
-        currentDisplay_ = -1;
-        for (int i = 0; i < static_cast<int>(displays_.size()); ++i)
+        if (routeLoss != DisplayRouteLoss::None)
         {
-            if (displays_[i].id == liveId)
-            {
-                currentDisplay_ = i;
-                break;
-            }
-        }
-
-        if (!liveId.empty() && currentDisplay_ < 0)
-        {
-            ATEMFX_LOG_WARN("The output display disconnected");
-            outputStatus_ = "Output display disconnected";
             requestOutputClose_ = true;
         }
     }
@@ -631,6 +625,14 @@ void App::serviceOutput()
         requestOutputClose_ = false;
         requestedDisplay_   = -1;
         closeOutput();
+    }
+
+    if (routeLoss != DisplayRouteLoss::None)
+    {
+        outputStatus_ = routeLoss == DisplayRouteLoss::Disconnected
+            ? "Output display disconnected. Select an output to resume sending."
+            : "Output display configuration changed. Select it again to resume sending.";
+        ATEMFX_LOG_WARN("%s", outputStatus_.c_str());
     }
 
     if (requestedDisplay_ >= 0)
@@ -778,21 +780,36 @@ int App::run()
     }
 
     window_->runFrameLoop([this] {
+        const auto frameStarted = std::chrono::steady_clock::now();
         timing_.beginFrame();
-        renderFrame();
+        const bool havePreview = renderFrame();
 
         if (options_.frames > 0 && timing_.frameIndex() >= static_cast<uint64_t>(options_.frames))
         {
             reportTimings();
             window_->destroy();
         }
+        else if (!havePreview && !outputSurface_)
+        {
+            // With neither display pacing the loop, a hidden webcam still
+            // needs frames, but must not flood the GPU queue in a busy loop.
+            // This M0 fallback yields outside processing; it is not genlock
+            // and never waits for a GPU result or a camera consumer.
+            std::this_thread::sleep_until(frameStarted +
+                std::chrono::microseconds(16683));
+        }
     });
 
     return webcamResult();
 }
 
-void App::renderFrame()
+bool App::renderFrame()
 {
+    // Route loss, Escape and webcam startup/shutdown must be serviced even
+    // when the operator's monitor cannot provide a preview drawable.
+    serviceOutput();
+    serviceWebcam();
+
     // The preview can lose its drawable while the output must keep running:
     // minimised, or — the case that actually bites — completely covered by the
     // output window itself, because the operator's window happened to be on
@@ -806,9 +823,9 @@ void App::renderFrame()
     const bool wantPreview  = !window_ || !window_->minimized();
     const bool havePreview  = wantPreview && device_->beginFrame();
 
-    if (!havePreview && !outputSurface_)
+    if (!havePreview && !outputSurface_ && !webcam_)
     {
-        return;
+        return false;
     }
 
     if (requestedLock_.pending)
@@ -849,9 +866,6 @@ void App::renderFrame()
         requestedSource_    = -1;
         selectSource(requested);
     }
-
-    serviceOutput();
-    serviceWebcam();
 
     if (requestShaderReload_ && !operationLocked_)
     {
@@ -936,10 +950,17 @@ void App::renderFrame()
         state.sourceDisconnected  = sourceDisconnected_;
         state.programMode         = &programMode_;
         state.programMix          = effectMix;
-        // Held mid-ramp behind Freeze or Black is not a dissolve in progress,
+        // Two dissolves can be running at once — Freeze lifting off a picture
+        // that is itself still fading from Clean to FX. The readout follows the
+        // one the audience is watching, which is always the outer one. A chain
+        // mix held mid-ramp behind Freeze or Black is not in progress at all,
         // and a percentage that never moves reads as a hung machine.
-        state.programMixing       = programTransition_.active() &&
+        const bool chainMixing = programTransition_.active() &&
             (programMode_ == ProgramMode::Effects || programMode_ == ProgramMode::Clean);
+        state.programMixing       = programOutput_.transitioning() || chainMixing;
+        state.programProgress     = programOutput_.transitioning()
+            ? programOutput_.progress()
+            : programTransition_.progress();
         state.operationLocked     = &operationLocked_;
         state.inputHealthy        = inputHealthy;
         state.outputWidth         = outputSurface_ ? outputSurface_->width() : 0;
@@ -1016,6 +1037,7 @@ void App::renderFrame()
     {
         device_->endFrame(options_.vsync && !outputSurface_);
     }
+    return havePreview;
 }
 
 void App::reportTimings() const

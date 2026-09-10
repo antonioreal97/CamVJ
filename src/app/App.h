@@ -87,7 +87,7 @@ private:
     void startTracking();
     void rescanDevices();
     void updateEffectContext();
-    void renderFrame();
+    bool renderFrame();
     bool dumpLastFrame(const std::string& path);
     void reportTimings() const;
 

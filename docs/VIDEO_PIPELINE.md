@@ -164,6 +164,20 @@ to. macOS stops vending drawables to a window nobody can see, and the first
 version of this returned early there, taking the wall down with the preview.
 It showed up as a run of 600 frames in 2.4 ms with nothing presented anywhere.
 
+The same independence applies to webcam-only output. Output lifecycle work
+runs before preview acquisition, Metal skips drawable acquisition for a fully
+occluded operator window, and a hidden window with no active display output
+uses a 16.683 ms software cadence outside processing. There is no GPU wait or
+consumer backpressure in that fallback, and headless remains unpaced.
+
+Display changes are observed through a platform flag, polled between frames:
+`NSApplicationDidChangeScreenParametersNotification` on macOS and
+`WM_DISPLAYCHANGE` on Windows. Enumeration preserves active and pending
+selections by ID, never by their old list positions. A disconnected output or
+changed raster, rate or desktop geometry closes the route and leaves a recovery
+message; a reconnect does not take itself live. PROGRAM and webcam output keep
+their existing state. An unchanged output survives changes to other displays.
+
 Escape closes the output. That exists because output can be sent to the display
 holding the user interface, and a borderless window above the menu bar is not
 something an operator can click their way out of. The key sets a flag; the
