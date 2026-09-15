@@ -26,13 +26,21 @@ void drawProgramPanel(UiFrameState& state)
         {ProgramMode::Freeze, "Freeze", "Hold the last PROGRAM frame while the camera keeps running."},
         {ProgramMode::Black, "Black", "Send black while keeping the output open."},
     };
+    constexpr const char* kSafetyFreezeTip =
+        "Safety hold from input loss. Select a live input, then FX or Clean to resume.";
 
     // What goes to air is the first decision of the show, so it sits above
     // routing and the chain rather than inside OUTPUT. The caption repeats the
     // live state where the eye already looks for a panel's value.
     const ProgramMode current = state.programMode ? *state.programMode : ProgramMode::Effects;
-    char caption[24];
-    if (state.programMixing)
+    char caption[32];
+    if (state.programSafetyHold && current == ProgramMode::Freeze)
+    {
+        // Distinct from an intentional Freeze: recovery is still an explicit
+        // mode change after the camera (or cable) is back.
+        std::snprintf(caption, sizeof(caption), "HOLD · INPUT");
+    }
+    else if (state.programMixing)
     {
         // How far along the dissolve is, not how much of the old picture is
         // left: the operator asked for a mode and wants to know when they
@@ -66,7 +74,12 @@ void drawProgramPanel(UiFrameState& state)
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            ImGui::SetTooltip("%s", control.description);
+            const char* tip = control.description;
+            if (control.mode == ProgramMode::Freeze && state.programSafetyHold)
+            {
+                tip = kSafetyFreezeTip;
+            }
+            ImGui::SetTooltip("%s", tip);
         }
     }
     ImGui::EndDisabled();

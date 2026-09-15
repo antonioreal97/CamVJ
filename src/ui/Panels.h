@@ -74,6 +74,9 @@ struct UiFrameState
     // way, not stuck.
     float              programProgress = 1.0f;
     bool               programMixing   = false;
+    // True while PROGRAM is Freeze because input failed, not because the
+    // operator pressed Freeze. Cleared only when they leave Freeze.
+    bool               programSafetyHold = false;
     bool*              operationLocked = nullptr;
     bool               inputHealthy    = false;
 

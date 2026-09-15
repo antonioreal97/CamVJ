@@ -331,7 +331,11 @@ An input is healthy when it is `Live` or `Generated` and the device has not
 disappeared (`SourceHealth`, `src/video/source_health.h`; `Stale` is 0.5 s
 without a new frame). When a live mode meets an unhealthy input and a valid
 image exists, `ProgramOutput` latches `Freeze` and reports the mode change
-back to `App`.
+back to `App`. `safetyHold()` stays true until the operator leaves Freeze, so
+the UI can tell a safety cut from an intentional hold: PROGRAM caption
+`HOLD · INPUT`, header match, Freeze tooltip with recovery steps, and a
+flashing SOURCE banner (stats alone are not enough — PARAMETERS replaces
+them). An operator Freeze never sets that flag.
 
 Three rules follow from that latch:
 

@@ -961,6 +961,7 @@ bool App::renderFrame()
         state.programProgress     = programOutput_.transitioning()
             ? programOutput_.progress()
             : programTransition_.progress();
+        state.programSafetyHold   = programOutput_.safetyHold();
         state.operationLocked     = &operationLocked_;
         state.inputHealthy        = inputHealthy;
         state.outputWidth         = outputSurface_ ? outputSurface_->width() : 0;

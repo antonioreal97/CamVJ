@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 
 #include "core/Log.h"
@@ -243,6 +244,21 @@ std::string CameraSource::status() const
     if (snapshot.signal == SourceSignal::Waiting)
     {
         return "waiting for the first frame";
+    }
+    if (snapshot.signal == SourceSignal::Stale)
+    {
+        // Frame count alone looked healthy while PROGRAM had already latched
+        // Freeze — the operator needs the age, not the last good resolution.
+        if (snapshot.ageSeconds < 1.0)
+        {
+            return "no frames for " +
+                   std::to_string(static_cast<int>(snapshot.ageSeconds * 1000.0 + 0.5)) +
+                   " ms — PROGRAM holding";
+        }
+        char age[48];
+        std::snprintf(age, sizeof(age), "no frames for %.1f s — PROGRAM holding",
+                      snapshot.ageSeconds);
+        return age;
     }
 
     return std::to_string(frameWidth_) + "x" + std::to_string(frameHeight_) + "  ·  " +

@@ -2,6 +2,12 @@
 
 ## Foco
 
+Pedido 2026-09-15 (continuação PR #4): **confiança do operador sob falha de
+entrada**. Evidência: SOURCE mostrava `WxH · frames` em Stale; mensagem de
+recovery só no stats (some sob PARAMETERS); Freeze de safety idêntico ao
+gesto. Entregue `safetyHold` + banner SOURCE + status Stale honesto. CTest
+`program_output` 378/0 no Linux; Metal/headless no CI Mac do PR.
+
 Pedido 2026-09-15: **prontidão de evento no macOS** — gap analysis no Project
 store (`internal/macos-event-readiness.md`) + polish de operador in-scope.
 Código do show path (câmera, Vision, Auto Frame, display, PROGRAM, webcam,

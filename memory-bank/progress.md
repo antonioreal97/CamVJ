@@ -269,10 +269,17 @@ continua pendente.
 
 ## 2026-09-15 — polish de operador (macOS event readiness)
 
-Sem Metal neste ambiente: mudanças só de UX/docs/pacote, sem gate local.
+Sem Metal neste ambiente: mudanças só de UX/docs/pacote + status de segurança,
+com CTest `program_output` compilado/rodado à mão no Linux (378 checks).
 
 - `Parameter::makeChoice` em Fit da câmera, Mirror `mode` e Frame Delay
   `blend` (combos nomeados; packing Int inalterado).
 - Painel OUTPUT: tooltip/status da webcam citam **OBS Virtual Camera**.
 - `scripts/package_macos.sh` inclui `READ_ME_FIRST.txt` no DMG.
-- Docs: `EFFECT_SYSTEM.md`, `BUILD.md`. Memory-bank atualizado.
+- **Input health visível no SOURCE** (banner NO SIGNAL / DISCONNECTED) e
+  `CameraSource::status()` fala Stale em vez de `WxH · frames`.
+- **`ProgramOutput::safetyHold()`**: Freeze de perda ≠ Freeze do operador;
+  caption `HOLD · INPUT`, header, tooltip, tag HOLD no preview.
+- Stats: `CAMERA HOLDING` (EN), sem jargão Stale na faixa.
+- Docs: `EFFECT_SYSTEM.md`, `BUILD.md`, `RUNTIME.md` § Input loss.
+  Memory-bank atualizado.
