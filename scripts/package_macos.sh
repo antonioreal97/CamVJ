@@ -110,12 +110,46 @@ if [[ "${SKIP_SMOKE}" -eq 0 ]]; then
     "${STAGE_APP}/Contents/MacOS/atem_fx" --headless --frames 200
 fi
 
-# DMG staging: app + Applications symlink (Finder drag-install layout).
+# DMG staging: app + Applications symlink (Finder drag-install layout) plus a
+# short first-run sheet — unsigned builds hit Gatekeeper and the webcam path
+# depends on OBS's camera extension, which is easy to miss on a show laptop.
 DMG_STAGE="${DIST_DIR}/macos-dmg"
 rm -rf "${DMG_STAGE}"
 mkdir -p "${DMG_STAGE}"
 ditto "${STAGE_APP}" "${DMG_STAGE}/CamVJ.app"
 ln -s /Applications "${DMG_STAGE}/Applications"
+
+cat > "${DMG_STAGE}/READ_ME_FIRST.txt" <<'EOF'
+CamVJ — first run on a show Mac
+================================
+
+1. Drag CamVJ into Applications.
+2. First open: if Gatekeeper blocks, right-click CamVJ → Open → Open.
+   The build is unsigned in this release; that is expected.
+3. Allow Camera when asked (System Settings → Privacy & Security → Camera).
+   Open the app from Applications (the .app bundle), not a raw binary.
+
+LED wall path
+-------------
+- SOURCE: pick the camera (or Test Pattern → LED Mapping to align panels).
+- OUTPUT: pick the display that feeds the LED processor / Resolume input.
+- PROGRAM: FX for the look, Clean for framing only, Freeze / Black for safety.
+  Input loss latches Freeze; it never auto-picks Test Pattern.
+
+Virtual camera (Zoom / Meet / Teams)
+------------------------------------
+CamVJ does not install a camera extension. Install OBS Studio once, enable
+"OBS Virtual Camera" under System Settings → General → Login Items &
+Extensions → Camera Extensions, then quit OBS. In CamVJ press Start webcam.
+Call apps list the device as "OBS Virtual Camera" — the picture is CamVJ's
+PROGRAM. Do not run OBS's own virtual camera at the same time.
+
+Verify the build
+----------------
+Inside the app bundle:
+  CamVJ.app/Contents/MacOS/atem_fx --version
+  CamVJ.app/Contents/MacOS/atem_fx --headless --frames 200
+EOF
 
 rm -f "${DMG_PATH}"
 # UDZO: compressed read-only image; no external create-dmg dependency.

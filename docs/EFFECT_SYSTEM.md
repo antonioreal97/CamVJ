@@ -60,8 +60,9 @@ including ones written after the UI was compiled — without a single `if`.
 
 Types today: `Float`, `Int`, `Bool`. An integer can optionally carry zero-based
 choice names (`Parameter::makeChoice`); the generic UI draws those as a combo
-while packing and automation remain scalar. Test Pattern uses this for its
-named patterns. Integers without choices, such as Mirror's mode, remain sliders.
+while packing and automation remain scalar. Test Pattern, camera Fit, Mirror
+mode and Frame Delay blend use that path. Integers without choices (block
+size, grid, copy count) remain sliders.
 
 ---
 

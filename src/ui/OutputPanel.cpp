@@ -172,14 +172,16 @@ void drawOutputPanel(UiFrameState& state)
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
     {
         ImGui::SetTooltip(state.webcamSupported
-                              ? "Send PROGRAM to call applications as a camera."
+                              ? "Send PROGRAM to call apps. Requires OBS Virtual Camera\n"
+                                "enabled once in System Settings (Camera Extensions).\n"
+                                "Call apps list it as \"OBS Virtual Camera\"."
                               : "This build has no webcam output.");
     }
 
     if (webcamLive)
     {
         ImGui::PushStyleColor(ImGuiCol_Text, theme::splitMagenta);
-        ImGui::Text("Sending to the camera device");
+        ImGui::Text("Sending as OBS Virtual Camera");
         ImGui::PopStyleColor();
         // Dropped frames are the only symptom a slow consumer produces here,
         // so they are on the panel rather than in a log the operator is not
@@ -191,6 +193,10 @@ void drawOutputPanel(UiFrameState& state)
     else if (webcamBusy)
     {
         ImGui::TextDisabled("Working");
+    }
+    else if (state.webcamSupported)
+    {
+        ImGui::TextDisabled("Appears as OBS Virtual Camera in call apps");
     }
     else
     {

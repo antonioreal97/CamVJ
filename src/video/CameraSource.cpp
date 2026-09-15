@@ -44,7 +44,10 @@ CameraSource::~CameraSource()
 
 bool CameraSource::initialize(EffectContext& context, std::string& error)
 {
-    parameters_.add(Parameter::makeInt("fit", "Fit", 0, 0, 2));  // 0 fit, 1 fill, 2 stretch
+    // Named choices — mid-show the operator needs Fit/Fill/Stretch by name,
+    // not a 0..2 slider. Same packing slots into source_blit.
+    parameters_.add(Parameter::makeChoice("fit", "Fit", 0,
+                                          {"Fit (letterbox)", "Fill (crop)", "Stretch"}));
     parameters_.add(Parameter::makeBool("mirror", "Mirror", false));
 
     target_ = &context.targets->persistent(kTargetKey);
