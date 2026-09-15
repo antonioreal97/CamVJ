@@ -2,6 +2,26 @@
 
 ## Foco
 
+Pedido 2026-09-15 (continuação PR #4): **webcam OBS Starting/Stopping/FAIL**.
+Evidência: OUTPUT colapsava busy em `"Working"`; `Failed` virava `Stopped`
+antes do draw. Entregue tallies START/LIVE/STOP/FAIL, fault sticky magenta,
+`virtualCameraTallyLabel` + CTest. Sem mudança de hot path/submit.
+
+Pedido 2026-09-15 (continuação PR #4): **confiança do operador sob falha de
+entrada**. Evidência: SOURCE mostrava `WxH · frames` em Stale; mensagem de
+recovery só no stats (some sob PARAMETERS); Freeze de safety idêntico ao
+gesto. Entregue `safetyHold` + banner SOURCE + status Stale honesto. CTest
+`program_output` 378/0 no Linux; Metal/headless no CI Mac do PR.
+
+Pedido 2026-09-15: **prontidão de evento no macOS** — gap analysis no Project
+store (`internal/macos-event-readiness.md`) + polish de operador in-scope.
+Código do show path (câmera, Vision, Auto Frame, display, PROGRAM, webcam,
+pacote) já existe; o bloqueio premium é **aceitação ao vivo** no Mac, não
+feature nova de milestone. Neste cloud agent (Linux, sem Metal) não roda o
+gate headless: entregue makeChoice (Fit / Mirror / Blend), hint OBS na UI e
+`READ_ME_FIRST.txt` no DMG. Próximo passo operacional: Phases 1–4 de
+`docs/plans/2026-09-09-macos-first-development.md` num Mac com GPU.
+
 Pedido 2026-09-09: **CI de proteção** (sem CD). Workflow
 `.github/workflows/ci.yml` no self-hosted macOS ARM64 com Metal: Release
 build, CTest, `--check-shaders`, headless 200 frames. Sem publicação de
@@ -368,23 +388,26 @@ e mantém UTF-8 em saída redirecionada; a execução Windows segue pendente.
 
 ## Próximos passos de produto
 
-0. Tracking: o show roda no **macOS** (decidido em 2026-09-08). Vision é o
+0. **Aceitação macOS para evento** (bloqueia “premium ready”): inspecionar UI
+   e loops; FX30/câmera ao vivo + Auto Frame; display → LED; DMG unsigned;
+   webcam OBS em app de chamada. Ver
+   `docs/plans/2026-09-09-macos-first-development.md` e store
+   `internal/macos-event-readiness.md`. Não retomar DeckLink Windows antes.
+1. Tracking: o show roda no **macOS** (decidido em 2026-09-08). Vision é o
    detector de produção desta feature; o detector do Windows fica adiado, não
    bloqueia. Formato 16:9 / 9:16 (letterbox no canvas 1920×1080) e Preview
    SOURCE/PROGRAM estão implementados. Pick subject escolhe o alvo; falta
    validar com câmera real (duas pessoas, drag num objeto, lock perdido sem
    pular). Abertos: (a) validar com câmera real e Auto Frame ligado — caixas
-   no SOURCE, PROGRAM 16:9 vs 9:16, Pick; (b) **não existe saída de vídeo
-   no macOS** — levar a imagem até a ATEM ou o Resolume não está resolvido
-   nem escopado.
-1. Concluir testes de automação e gate macOS de 200 frames; conferir controles
+   no SOURCE, PROGRAM 16:9 vs 9:16, Pick; (b) retorno limpo para ATEM no
+   macOS **não existe** (sem DeckLink) — parede via display HDMI/DP; webcam
+   via extensão OBS.
+2. Concluir testes de automação e gate macOS de 200 frames; conferir controles
    de loop na UI antes de chamar a extensão de concluída.
-2. Validar FX-010 com build Windows e SDK real: diagnóstico sem driver,
-   enumeração sem dispositivos e metadados de uma placa. Não marcar done
-   antes dessa validação.
-3. FX-011 capture, FX-012 playback, FX-013 filas, FX-014 timing — issues
+3. Validar FX-010 com build Windows e SDK real (depois do caminho macOS).
+4. FX-011 capture, FX-012 playback, FX-013 filas, FX-014 timing — issues
    separadas, não uma classe “faz DeckLink”.
-4. Tirar o processamento da UI thread usando o snapshot `EffectContext`.
+5. Tirar o processamento da UI thread usando o snapshot `EffectContext`.
 
 ## Considerações
 

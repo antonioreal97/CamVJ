@@ -655,8 +655,21 @@ void App::serviceWebcam()
     {
         webcamStats_ = webcam_->stats();
 
-        if (webcamStats_.state == VirtualCameraState::Failed)
+        if (webcamStats_.state == VirtualCameraState::Sending)
         {
+            // A live stream clears a previous panel fault and the --webcam
+            // sticky failure: the run did get a camera after all.
+            webcamFailed_ = false;
+            if (webcamStatus_ == "Webcam starting")
+            {
+                webcamStatus_ = "Sending as OBS Virtual Camera";
+            }
+        }
+        else if (webcamStats_.state == VirtualCameraState::Failed)
+        {
+            // Collapse the worker before the UI draws this frame, but keep the
+            // error string and sticky fault so OUTPUT can show FAIL — the panel
+            // never observes VirtualCameraState::Failed itself.
             webcamStatus_ = webcam_->error();
             webcamFailed_ = true;
             ATEMFX_LOG_WARN("Webcam: %s", webcamStatus_.c_str());
@@ -669,7 +682,10 @@ void App::serviceWebcam()
             // before: a frame may still be on its way to it.
             webcam_.reset();
             webcamStats_ = {VirtualCameraState::Stopped, 0, 0};
-            webcamStatus_ = "Webcam stopped";
+            if (!webcamFailed_)
+            {
+                webcamStatus_ = "Webcam stopped";
+            }
         }
     }
 
@@ -688,6 +704,9 @@ void App::serviceWebcam()
         requestWebcamStart_ = false;
         if (!webcam_)
         {
+            // Fresh attempt: clear the last fault so FAIL does not linger over
+            // a Starting tally, then set it again if create/connect fails.
+            webcamFailed_ = false;
             std::string error;
             webcam_ = createVirtualCameraOutput(*device_, error);
             if (webcam_)
@@ -961,6 +980,7 @@ bool App::renderFrame()
         state.programProgress     = programOutput_.transitioning()
             ? programOutput_.progress()
             : programTransition_.progress();
+        state.programSafetyHold   = programOutput_.safetyHold();
         state.operationLocked     = &operationLocked_;
         state.inputHealthy        = inputHealthy;
         state.outputWidth         = outputSurface_ ? outputSurface_->width() : 0;
@@ -969,6 +989,7 @@ bool App::renderFrame()
         state.webcamSupported     = webcamSupported_;
         state.webcamStats         = webcamStats_;
         state.webcamStatus        = &webcamStatus_;
+        state.webcamFault         = webcamFailed_;
         state.requestWebcamStart  = &requestWebcamStart_;
         state.requestWebcamStop   = &requestWebcamStop_;
         state.timing              = &timing_;

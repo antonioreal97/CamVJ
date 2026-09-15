@@ -242,13 +242,15 @@ Usar isso. Não marcar FX-007/008/009 como feitos.
 - `FrameTiming.h` ainda comenta “4 seconds at 60 fps” no tamanho do ring
   (240 amostras) — comentário, não lock.
 - Sem GPU no sandbox → headless falha com “No Metal device”. Não é regressão
-  do engine.
+  do engine. Cloud agent Linux não configura o projeto (só Win/macOS).
 - CI macOS: `.github/workflows/ci.yml` (self-hosted ARM64 + GPU). Sem
   runner registrado o job fica em fila. Windows CI e CD ainda não.
 - Identidade CamVJ aplicada na UI ImGui (`src/ui/Theme.*`); SVGs em `assets/files/`.
-- Enums de efeito (`Mirror.mode`) ainda são int slider.
 - Câmera USB (FX30 UVC) plugada com o app aberto não aparecia até o restart;
   hotplug AVFoundation + formato 1080p explícito (2026-09-08).
+- **Aceitação de evento macOS ainda aberta:** UI ao vivo, FX30 + Auto Frame,
+  display → processador LED, DMG unsigned em Mac limpo, webcam em app de
+  chamada. Análise: store `internal/macos-event-readiness.md`.
 
 ## Gate
 
@@ -264,3 +266,22 @@ do sandbox: Apple M4, 200 frames, 1,131 ms de processamento GPU, build Release
 e 20 verificações de CLI; CMake rejeitou DeckLink habilitado em plataforma não
 suportada. A validação de DeckLink e dos diagnósticos Unicode no Windows
 continua pendente.
+
+## 2026-09-15 — polish de operador (macOS event readiness)
+
+Sem Metal neste ambiente: mudanças só de UX/docs/pacote + status de segurança,
+com CTest `program_output` compilado/rodado à mão no Linux (378 checks).
+
+- `Parameter::makeChoice` em Fit da câmera, Mirror `mode` e Frame Delay
+  `blend` (combos nomeados; packing Int inalterado).
+- Painel OUTPUT: tooltip/status da webcam citam **OBS Virtual Camera**.
+- `scripts/package_macos.sh` inclui `READ_ME_FIRST.txt` no DMG.
+- **Input health visível no SOURCE** (banner NO SIGNAL / DISCONNECTED) e
+  `CameraSource::status()` fala Stale em vez de `WxH · frames`.
+- **`ProgramOutput::safetyHold()`**: Freeze de perda ≠ Freeze do operador;
+  caption `HOLD · INPUT`, header, tooltip, tag HOLD no preview.
+- Stats: `CAMERA HOLDING` (EN), sem jargão Stale na faixa.
+- **Webcam OUTPUT:** tallies `START`/`LIVE`/`STOP`/`FAIL`/`OFF`; fault sticky
+  após Failed→Stopped; sem `"Working"`; CTest `virtual_camera_status`.
+- Docs: `EFFECT_SYSTEM.md`, `BUILD.md`, `RUNTIME.md` § Input loss,
+  `VIRTUAL_CAMERA.md`. Memory-bank atualizado.

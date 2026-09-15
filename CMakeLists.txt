@@ -401,7 +401,9 @@ if(BUILD_TESTING)
         src/effects/EffectRegistry.cpp
         src/effects/parameter_automation.cpp
         src/core/Log.cpp)
-    foreach(target source_health_test program_output_test)
+    add_executable(virtual_camera_status_test
+        tests/virtual_camera_status_test.cpp)
+    foreach(target source_health_test program_output_test virtual_camera_status_test)
         target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
         if(MSVC)
             target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
@@ -411,4 +413,5 @@ if(BUILD_TESTING)
     endforeach()
     add_test(NAME source_health COMMAND source_health_test)
     add_test(NAME program_output COMMAND program_output_test)
+    add_test(NAME virtual_camera_status COMMAND virtual_camera_status_test)
 endif()

@@ -342,13 +342,14 @@ void checkLossLatchesUntilManualResume()
             expect(solid(f.output.render(f.context, lostFrame, loss != 0, f.mode), kFirst),
                    "unhealthy, missing or invalid input preserves the last good PROGRAM");
             expect(f.mode == ProgramMode::Freeze, "input loss latches Freeze from either live mode");
+            expect(f.output.safetyHold(), "input loss marks a safety hold for the operator");
             input.valid_ = true;
             for (int frame = 0; frame < 3; ++frame)
                 expect(solid(f.output.render(f.context, &input, true, f.mode), kFirst) &&
-                           f.mode == ProgramMode::Freeze,
+                           f.mode == ProgramMode::Freeze && f.output.safetyHold(),
                        "camera recovery cannot take moving video live by itself");
             f.mode = liveMode;
-            expect(solid(settle(f, &input, true), kNext),
+            expect(solid(settle(f, &input, true), kNext) && !f.output.safetyHold(),
                    "the operator can resume the chosen live mode after recovery");
         }
     }
@@ -896,6 +897,25 @@ void checkEveryModeDissolves()
         GpuTexture* latched = f.output.render(f.context, nullptr, false, f.mode);
         expect(f.mode == ProgramMode::Freeze && !f.output.transitioning() && solid(latched, kFirst),
                "input loss cuts to the held picture, it never fades to it");
+        expect(f.output.safetyHold(), "the cut is marked as a safety hold");
+        f.mode = ProgramMode::Freeze;
+        expect(f.output.render(f.context, &live, true, f.mode) != nullptr && f.output.safetyHold(),
+               "pressing Freeze again does not clear a safety hold");
+        f.mode = ProgramMode::Effects;
+        f.output.render(f.context, &live, true, f.mode);
+        expect(!f.output.safetyHold(), "leaving Freeze clears the safety hold");
+    }
+
+    // An intentional Freeze is not a safety latch — the tooltip path depends
+    // on that distinction after the camera recovers.
+    {
+        Fixture f;
+        TestTexture live;
+        live.fill(kFirst);
+        f.output.render(f.context, &live, true, f.mode);
+        f.mode = ProgramMode::Freeze;
+        f.output.render(f.context, &live, true, f.mode);
+        expect(!f.output.safetyHold(), "operator Freeze does not set a safety hold");
     }
 
     // A missing mix shader costs the transition, never the button.

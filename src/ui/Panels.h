@@ -60,6 +60,10 @@ struct UiFrameState
     bool                webcamSupported   = false;
     VirtualCameraStats  webcamStats       = {VirtualCameraState::Stopped, 0, 0};
     const std::string*   webcamStatus      = nullptr;
+    // Sticky after a failed start/connect until the next successful send or a
+    // fresh Start. Failed collapses to Stopped in App before the UI draws, so
+    // the panel cannot read VirtualCameraState::Failed from stats alone.
+    bool                webcamFault       = false;
     bool*               requestWebcamStart = nullptr;
     bool*               requestWebcamStop  = nullptr;
 
@@ -74,6 +78,9 @@ struct UiFrameState
     // way, not stuck.
     float              programProgress = 1.0f;
     bool               programMixing   = false;
+    // True while PROGRAM is Freeze because input failed, not because the
+    // operator pressed Freeze. Cleared only when they leave Freeze.
+    bool               programSafetyHold = false;
     bool*              operationLocked = nullptr;
     bool               inputHealthy    = false;
 

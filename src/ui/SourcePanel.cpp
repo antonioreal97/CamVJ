@@ -167,6 +167,33 @@ void drawSourcePanel(UiFrameState& state)
         ImGui::SetTooltip("Look for capture devices again.");
     }
 
+    // Health and recovery live here, not only in the stats strip: PARAMETERS
+    // replaces stats mid-show, and a Stale camera still looked "live" in the
+    // source status line (WxH · frames) until this banner.
+    const SourceSignal signal = state.sourceHealth.signal;
+    if (state.sourceDisconnected || signal == SourceSignal::Stale ||
+        signal == SourceSignal::Waiting)
+    {
+        const bool flash = (static_cast<int>(ImGui::GetTime() * 4.0) % 2) == 0;
+        const char* banner = "WAITING FOR INPUT";
+        if (state.sourceDisconnected)
+        {
+            banner = "INPUT DISCONNECTED";
+        }
+        else if (signal == SourceSignal::Stale)
+        {
+            banner = "NO SIGNAL";
+        }
+        ImGui::TextColored(flash ? theme::splitMagenta : theme::keyLight, "%s", banner);
+        if (state.status && !state.status->empty() &&
+            (state.sourceDisconnected || signal == SourceSignal::Stale))
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::splitMagenta);
+            ImGui::TextWrapped("%s", state.status->c_str());
+            ImGui::PopStyleColor();
+        }
+    }
+
     if (state.source)
     {
         const std::string status = state.source->status();

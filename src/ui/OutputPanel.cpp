@@ -146,11 +146,17 @@ void drawOutputPanel(UiFrameState& state)
 
     const VirtualCameraState webcamState = state.webcamStats.state;
     const bool webcamLive = webcamState == VirtualCameraState::Sending;
-    const bool webcamBusy = webcamState == VirtualCameraState::Starting ||
-                            webcamState == VirtualCameraState::Stopping;
+    const bool webcamStarting = webcamState == VirtualCameraState::Starting;
+    const bool webcamStopping = webcamState == VirtualCameraState::Stopping;
+    const bool webcamBusy = webcamStarting || webcamStopping;
+    const bool webcamFault = state.webcamFault && !webcamLive && !webcamBusy;
 
-    theme::drawGroupLabel("WEBCAM", webcamLive ? "LIVE" : "OFF",
-                          webcamLive ? theme::kSplitMagentaU32 : theme::kRackGreyU32);
+    const char* webcamTally = virtualCameraTallyLabel(webcamState, state.webcamFault);
+    const ImU32 webcamTallyColour =
+        (webcamLive || webcamStarting || webcamStopping || webcamFault)
+            ? theme::kSplitMagentaU32
+            : theme::kRackGreyU32;
+    theme::drawGroupLabel("WEBCAM", webcamTally, webcamTallyColour);
 
     ImGui::BeginDisabled(!state.webcamSupported || webcamBusy || routingLocked);
     if (webcamLive)
@@ -172,14 +178,16 @@ void drawOutputPanel(UiFrameState& state)
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
     {
         ImGui::SetTooltip(state.webcamSupported
-                              ? "Send PROGRAM to call applications as a camera."
+                              ? "Send PROGRAM to call apps. Requires OBS Virtual Camera\n"
+                                "enabled once in System Settings (Camera Extensions).\n"
+                                "Call apps list it as \"OBS Virtual Camera\"."
                               : "This build has no webcam output.");
     }
 
     if (webcamLive)
     {
         ImGui::PushStyleColor(ImGuiCol_Text, theme::splitMagenta);
-        ImGui::Text("Sending to the camera device");
+        ImGui::Text("Sending as OBS Virtual Camera");
         ImGui::PopStyleColor();
         // Dropped frames are the only symptom a slow consumer produces here,
         // so they are on the panel rather than in a log the operator is not
@@ -188,9 +196,23 @@ void drawOutputPanel(UiFrameState& state)
                             static_cast<unsigned long long>(state.webcamStats.sent),
                             static_cast<unsigned long long>(state.webcamStats.skipped));
     }
-    else if (webcamBusy)
+    else if (webcamStarting)
     {
-        ImGui::TextDisabled("Working");
+        ImGui::TextDisabled("Starting — connecting to OBS Virtual Camera");
+    }
+    else if (webcamStopping)
+    {
+        ImGui::TextDisabled("Stopping — releasing the camera extension");
+    }
+    else if (webcamFault)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::splitMagenta);
+        ImGui::TextUnformatted("Failed");
+        ImGui::PopStyleColor();
+    }
+    else if (state.webcamSupported)
+    {
+        ImGui::TextDisabled("Appears as OBS Virtual Camera in call apps");
     }
     else
     {
@@ -199,7 +221,19 @@ void drawOutputPanel(UiFrameState& state)
 
     if (state.webcamStatus && !state.webcamStatus->empty())
     {
-        ImGui::TextWrapped("%s", state.webcamStatus->c_str());
+        // Fault copy is the actionable part (OBS extension missing, sink
+        // busy). Keep it magenta so it cannot read as a quiet idle hint.
+        // Busy lines already name Starting/Stopping — do not repeat them.
+        if (webcamFault)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::splitMagenta);
+            ImGui::TextWrapped("%s", state.webcamStatus->c_str());
+            ImGui::PopStyleColor();
+        }
+        else if (!webcamLive && !webcamBusy)
+        {
+            ImGui::TextWrapped("%s", state.webcamStatus->c_str());
+        }
     }
 }
 

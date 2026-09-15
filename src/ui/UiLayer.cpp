@@ -221,8 +221,12 @@ void drawHeader(UiFrameState& state, ImVec2 origin, ImVec2 size)
 
     ui::pushMono();
     const ProgramMode headerMode = state.programMode ? *state.programMode : ProgramMode::Effects;
-    char modeLabel[32];
-    if (state.programMixing)
+    char modeLabel[40];
+    if (state.programSafetyHold && headerMode == ProgramMode::Freeze)
+    {
+        std::snprintf(modeLabel, sizeof(modeLabel), "PROGRAM  HOLD · INPUT");
+    }
+    else if (state.programMixing)
     {
         std::snprintf(modeLabel, sizeof(modeLabel), "PROGRAM  %s %.0f%%",
                       programModeName(headerMode),
