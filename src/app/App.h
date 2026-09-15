@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
+#include <future>
 #include <memory>
 #include <string>
 #include <vector>
@@ -8,6 +10,9 @@
 #include "effects/Effect.h"
 #include "effects/EffectChain.h"
 #include "gpu/Rhi.h"
+#include "overlays/overlay_library.h"
+#include "overlays/overlay_platform.h"
+#include "overlays/overlay_system.h"
 #include "platform/Display.h"
 #include "platform/OutputWindow.h"
 #include "platform/Window.h"
@@ -83,6 +88,16 @@ private:
     void closeOutput();
     void serviceOutput();
     void serviceWebcam();
+    void servicePresets();
+    void serviceOverlays();
+    void consumeOverlayCommand();
+    bool beginOverlayPicker(const OverlayUiCommand& command);
+    void launchOverlayImport(const std::filesystem::path& source);
+    void rebuildOverlayAssetUi();
+    void refreshOverlayUi();
+    void persistBootState();
+    bool recallPresetById(const std::string& id);
+    bool saveCurrentPreset(const std::string& name);
     int webcamResult() const;
     void startTracking();
     void rescanDevices();
@@ -155,6 +170,52 @@ private:
 
     bool        requestShaderReload_ = false;
     std::string status_;
+
+    enum class OverlayImportAction
+    {
+        NewAsset,
+        AddVariant,
+        ReplaceVariant,
+    };
+
+    struct PendingOverlayImport
+    {
+        OverlayImportAction action = OverlayImportAction::NewAsset;
+        OverlayMediaType    mediaType = OverlayMediaType::StillPng;
+        OverlayCanvasFormat format = OverlayCanvasFormat::Landscape16x9;
+        std::string         assetId;
+    };
+
+    struct OverlayImportJobResult
+    {
+        std::unique_ptr<OverlayLibrary> library;
+        std::string                     assetId;
+        std::string                     assetName;
+        std::string                     error;
+        bool                            cancelled = false;
+    };
+
+    // Overlay IO is a control-plane concern. The picker is native and
+    // pollable; validation/copying happens in a worker. Only immutable asset
+    // metadata and already-decoded frames reach the render path.
+    OverlayLibrary                         overlayLibrary_;
+    OverlaySystem                          overlaySystem_;
+    std::unique_ptr<OverlaySourcePicker>   overlayPicker_;
+    std::future<OverlayImportJobResult>    overlayImportFuture_;
+    std::shared_ptr<OverlayImportControl>  overlayImportControl_;
+    PendingOverlayImport                   pendingOverlayImport_;
+    OverlayPanelSnapshot                   overlayPanelSnapshot_;
+    std::vector<OverlayLayerUiState>       overlayLayerUi_;
+    std::vector<OverlayAssetUiState>       overlayAssetUi_;
+    OverlayUiCommand                       overlayCommand_;
+    bool                                   overlaysInitialized_ = false;
+    std::uint64_t                          overlayImportSerial_ = 0;
+
+    // Scene presets: UI writes the request, the frame loop applies it between
+    // draws so the chain is never rebuilt while panels are iterating it.
+    std::string recallPresetId_;
+    std::string savePresetName_;
+    bool        requestPresetSave_ = false;
 };
 
 } // namespace atemfx

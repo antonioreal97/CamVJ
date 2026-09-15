@@ -19,10 +19,10 @@ validation.
 | M0        | GPU engine running with a test source          | **done** |
 | M1        | DeckLink IN → GPU → DeckLink OUT               | paused until macOS validation is complete |
 | M2        | Effect *graph* (DAG) and a feedback effect     |        |
-| M3        | Presets (JSON) on top of the existing UI       |        |
+| M3        | Presets (JSON) on top of the existing UI       | **opened early** — FX-009 minimum shipped for macOS show path |
 | M4        | ATEM integration                               |        |
 | M5        | MIDI + audio reactive                          |        |
-| M6        | Fill/Key and advanced features                 |        |
+| M6        | Fill/Key and advanced features                 | **opened early** — FX-026 operator overlays shipped |
 
 ### What M0 actually delivered
 
@@ -182,8 +182,33 @@ infrastructure looks ready.
 
 ### What M3 is *not*
 
-The UI already renders any effect from `ParameterSet`. M3 is **presets**
+The UI already rendered any effect from `ParameterSet`. M3 is **presets**
 (save/load JSON, recall buttons). FX-009.
+
+**FX-009 minimum (event path):** scene presets serialize the linear chain
+(order, enable, parameters, parameter loops), the bounded overlay stack,
+FX/Clean PROGRAM mode, and Auto Frame state including portrait. Schema v2 adds
+overlays; v1 remains readable with an empty stack. Factory looks ship in-process; operator looks
+live under Application Support. Venue boot (`boot.json`) remembers the last
+source id, output display id and portrait flag — separate from looks, so a
+recall cannot silently re-route the wall. Freeze/Black are not stored in a
+look. Hand-rolled JSON, no third-party parser. This does not open M2 or M5.
+
+### Bounded operator overlays (FX-026)
+
+M6 is opened early only for operator-authored RGBA graphics. The OVERLAYS
+sidebar imports exact 1920×1080 or 1080×1920 PNGs — static files or 2–300 frame
+PNG sequences — into a managed library and drives a maximum four-layer GPU
+stack after `EffectChain` and before `ProgramOutput`. Import is asynchronous
+and never takes a graphic live by itself. Clean dissolves overlays with the
+visual look, Freeze/Black keep playback running behind PROGRAM, and scene
+preset v2 stores the stack. Details are in [OVERLAYS.md](OVERLAYS.md).
+
+This does **not** deliver Fill/Key outputs, blend modes, video-file playback,
+generated text, arbitrary layer transforms or a layer DAG. Those remain M6/M2
+work. macOS build, portable tests, shader compilation and the 200-frame gate
+are validated; the Windows picker/WIC/runtime path is written but still needs
+a Windows build and native validation.
 
 ---
 
@@ -199,7 +224,7 @@ The UI already renders any effect from `ParameterSet`. M3 is **presets**
 | FX-006 | Pixelate              | M0        | done   |
 | FX-007 | Effect Graph          | M2        |        |
 | FX-008 | Feedback buffer / effect | M2     |        |
-| FX-009 | Presets               | M3        |        |
+| FX-009 | Presets               | M3        | minimum shipped (scene recall + venue boot + factory looks); JSON schema may grow |
 | FX-010 | DeckLink discovery    | M1        | implemented; Windows build/device validation pending |
 | FX-011 | DeckLink capture      | M1        | portable source seam implemented; Windows SDK capture pending |
 | FX-012 | DeckLink playback     | M1        |        |
@@ -216,6 +241,7 @@ The UI already renders any effect from `ParameterSet`. M3 is **presets**
 | FX-023 | Display output        | —         | macOS implemented and measured; Windows pieces pending a build |
 | FX-024 | PROGRAM safety (FX / Clean / Freeze / Black, input loss) | — | implemented, with `program_output` and `source_health` CTests |
 | FX-025 | PROGRAM as a webcam   | —         | macOS implemented (client of an installed extension); Windows not implemented |
+| FX-026 | Operator overlays (PNG / PNG sequence) | M6 | implemented; macOS verified, Windows runtime validation pending |
 
 FX-006's sibling Mirror shipped in M0 as well; it was never given its own
 issue number. Neither did the effects added after it — `fm_raster`,
@@ -234,7 +260,8 @@ pipeline (`AGENTS.md` §4).
   a third-party dependency or a shipped model file. Options and their costs
   are in `docs/TRACKING.md`.
 - spdlog — call shape in `Log.h` matches; implementation is `printf`.
-- JSON config — no schema, no loader.
+- General application config remains absent. Scene presets, venue boot and
+  overlay manifests use deliberately scoped hand-written JSON schemas.
 - CI — macOS self-hosted gate exists (`.github/workflows/ci.yml`: build,
   CTest, `--check-shaders`, headless 200). Windows CI and package CD are
   still open; setup notes are in [BUILD.md](BUILD.md#continuous-integration).

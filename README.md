@@ -10,16 +10,18 @@ volta a um switcher Blackmagic ATEM.
 
 **Estado: M0 feito; M1 em andamento.** Núcleo GPU com dois backends atrás de
 uma interface comum — **Metal (macOS)** e **Direct3D 11 (Windows)** — em
-1920×1080, onze efeitos, UI ImGui, self-test headless. As entradas de vídeo
+1920×1080, onze efeitos, presets e overlays gráficos 16:9/9:16, UI ImGui e
+self-test headless. As entradas de vídeo
 ficam atrás de `VideoSource`: padrão de teste, webcam interna e câmeras USB
 (no macOS 14+ também iPhone via Continuity). É essa a interface que o DeckLink
 vai implementar no M1.
 
 O primeiro passo do M1 é a descoberta de dispositivos DeckLink por comando,
 implementada e aguardando validação de build e placa no Windows. Ainda
-**não há** captura/saída SDI, ATEM, presets, MIDI nem áudio. Windows é a
-plataforma de produção (SDKs da Blackmagic). macOS é desenvolvimento e
-demonstração.
+**não há** captura/saída SDI, ATEM, MIDI nem áudio. Presets de cena (looks +
+boot de venue) e uma biblioteca gerenciada de overlays já existem no caminho macOS. Windows é a plataforma de
+produção (SDKs da Blackmagic). macOS é desenvolvimento, demonstração e o
+show de LED atual.
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j8
@@ -93,8 +95,8 @@ build Release numa máquina com Visual Studio. Detalhes em
 ## O que o M0 faz
 
 ```text
-TestPatternSource (GPU) → EffectChain → ProgramOutput → Preview ImGui ou dump PPM
-                          câmera                      → tela de saída (HDMI/DP)
+TestPatternSource/câmera → EffectChain → Overlays → ProgramOutput → Preview/PPM
+                                                               └→ tela de saída (HDMI/DP)
 ```
 
 Efeitos: `passthrough`, `rgb_split`, `pixelate`, `fm_raster`, `subpixel`,
@@ -121,7 +123,7 @@ A grade quadrada, o centro e as marcas de borda ajudam a conferir proporção,
 alinhamento e cortes. O canvas continua em 1920×1080: a faixa 9:16 mede
 607,5×1080, entre x=656,25 e x=1263,75.
 
-Esse padrão é estático e ignora os efeitos e o Auto Frame para
+Esse padrão é estático e ignora os efeitos, os overlays e o Auto Frame para
 preservar as medidas. **Freeze** e **Black** continuam valendo. Ao voltar a
 Colour Bars, Plasma, Grid ou câmera, a cadeia retoma os ajustes existentes.
 Speed e Motion Markers se aplicam aos três padrões animados.
@@ -164,8 +166,98 @@ manual fica desabilitado.
 
 Os loops continuam quando você seleciona outro efeito, reorganiza os nós ou
 desliga o efeito na cadeia. Instâncias do mesmo efeito têm controles
-independentes. As configurações valem apenas para a sessão e são perdidas ao
-encerrar o aplicativo; salvá-las em presets continua previsto para M3.
+independentes. Para guardar um look (cadeia + loops + Auto Frame + overlays + FX/Clean),
+use o painel **PRESETS** — ver [Runbook do evento](#runbook-do-evento-macos--led).
+
+## Presets e boot de venue
+
+O painel **PRESETS** (entre OUTPUT e OVERLAYS) tem looks de fábrica e os que
+você salvar. Desbloqueie **Operation** para recall ou save. Um look guarda a
+cadeia (ordem, enable, parâmetros e loops), a pilha de overlays e o modo PROGRAM **FX** ou
+**Clean** — Freeze/Black são gestos de segurança e não entram no arquivo.
+
+Looks de usuário ficam em
+`~/Library/Application Support/CamVJ/presets/*.json`. O boot de venue
+(`boot.json` no mesmo diretório) lembra a última fonte, a última tela de
+OUTPUT e se o Auto Frame estava em retrato 9:16 — separado do look, para um
+recall não trocar a rota da parede.
+
+### Looks de fábrica
+
+| Botão | O que liga |
+| ----- | ---------- |
+| Clean Frame | só Auto Frame; PROGRAM em Clean |
+| RGB Pulse | `rgb_split` com Amount em loop seno |
+| Pixel Stage | `pixelate` + `rgb_split` leve |
+| Shutter Trail | `shutter` |
+| Echo Delay | `frame_delay` |
+| VHS / CRT | `vhs` + `crt` |
+
+## Overlays próprios (16:9 e 9:16)
+
+O painel **OVERLAYS**, entre PRESETS e EFFECTS, guarda artes criadas por você.
+Clique em **Import**, escolha **Still PNG** para uma imagem ou **PNG sequence**
+para uma pasta de quadros, e selecione o arquivo/pasta no seletor do sistema.
+**Importar só leva a arte para a biblioteca; nada entra no ar sozinho.** Depois,
+abra **Library** e use **Add to stack** no asset desejado.
+
+Os arquivos precisam ter exatamente:
+
+- **16:9:** 1920×1080;
+- **9:16:** 1080×1920;
+- **sequência:** 2 a 300 PNGs do mesmo tamanho, ordenados naturalmente; 1–30 fps.
+
+Um mesmo asset pode ter as duas variantes. Com Auto Frame em retrato, CamVJ
+usa a variante 9:16 e a coloca na faixa vertical central do canvas 1920×1080;
+se ela não existir, a layer fica transparente e a interface avisa — não há
+stretch ou substituição silenciosa pela arte 16:9.
+
+A pilha aceita até quatro layers. A primeira linha é a da frente; você pode
+ligar/desligar, ajustar opacidade, reordenar e remover com fade de 0,35 s.
+Sequências têm Loop/One-shot, Pause e Restart. Pode haver várias sequências na
+pilha, mas apenas uma fica ativa ou saindo em fade por vez. **Clean** dissolve
+os overlays junto com o look; **Freeze** e **Black** mantêm a pilha rodando no
+preview FX atrás da imagem segura.
+
+As artes importadas são copiadas para
+`~/Library/Application Support/CamVJ/overlays/`; o arquivo original pode ser
+movido depois. Trocar uma variante mantém o último quadro bom até a nova estar
+pronta. Remover um asset é bloqueado enquanto ele estiver na pilha ou em um
+preset e, quando permitido, move-o para a lixeira interna da biblioteca.
+Importação, troca, remoção e estrutura da pilha exigem **Operation**
+desbloqueado; visibilidade, opacidade e transporte continuam disponíveis no
+show. Detalhes técnicos: [docs/OVERLAYS.md](docs/OVERLAYS.md).
+
+## Runbook do evento (macOS → LED)
+
+1. Instalar o DMG unsigned: arrastar **CamVJ** para Applications. Na primeira
+   abertura, se o Gatekeeper bloquear: clique direito → **Abrir**.
+2. Autorizar a câmera (pedido do sistema ou **Privacidade e Segurança › Câmera**).
+3. Abrir pelo bundle (`CamVJ.app`), não pelo binário cru — senão o TCC nega a câmera.
+4. **SOURCE** → escolher a câmera (FX30 / UVC). Com venue boot, a última fonte
+   volta sozinha se ainda existir.
+5. **Auto Frame** ligado + **Follow Subject**. No SOURCE: Pick no apresentador
+   (ou deixar o auto-pick até o primeiro Pick). Conferir caixa Tungsten e crop ciano.
+6. Aspecto: **Portrait (9:16)** se a parede for retrato; senão landscape 16:9.
+7. **OUTPUT** → tela que alimenta o processador de LED → SEND. Escape / Stop
+   fecha a saída; perda de cabo não escolhe outra tela sozinha.
+8. **PRESETS** → recall do look do show (ou Clean Frame). Unlock Operation se
+   o painel estiver cinza.
+9. **OVERLAYS** → confira o asset e a variante do formato atual; importe antes
+   do show e use **Add to stack** somente quando quiser colocá-lo no look.
+10. PROGRAM: **FX** no ar; **Clean** tira efeitos e overlays, mantendo o enquadramento;
+   **Freeze** / **Black** para emergência. Queda de câmera trava Freeze.
+11. Encerrar o app: o boot grava fonte / tela / retrato para o próximo open.
+
+Pacote local após build Release:
+
+```bash
+./scripts/package_macos.sh
+# → dist/CamVJ-<versão>-macos-arm64.dmg
+```
+
+Assinatura Developer ID / notarização ainda **não** entra neste ciclo — o
+caminho do evento é Gatekeeper (clique direito → Abrir).
 
 ## Enquadramento automático (Auto Frame)
 
@@ -282,13 +374,14 @@ está no telão agora e como eu tiro isso de lá em um movimento**. O painel
 
 | Botão      | O que vai para o telão                      |
 | ---------- | ------------------------------------------- |
-| **FX**     | a cadeia completa, como você montou         |
-| **Clean**  | a imagem sem efeitos visuais                |
+| **FX**     | a cadeia e os overlays, como você montou    |
+| **Clean**  | enquadramento, sem efeitos visuais/overlays |
 | **Freeze** | o último quadro bom, congelado              |
 | **Black**  | preto, com a saída no ar                    |
 
 **Clean não é desligar tudo.** O enquadramento continua: o Auto Frame segue
-recortando e o formato 9:16 continua onde estava. Você tira o *look* sem
+recortando e o formato 9:16 continua onde estava. Efeitos visuais e overlays
+saem juntos. Você tira o *look* sem
 perder o plano e sem mudar o que o processador de LED recebe — que é
 justamente o que se quer quando o efeito não combinou com o momento.
 
@@ -297,13 +390,14 @@ saída suavizadas, e o painel mostra o quanto já andou (`CLEAN 62%`). Quem est�
 assistindo lê um corte não anunciado como defeito; lê uma dissolução como
 decisão.
 
-FX e Clean *mudam* a imagem, então a mistura acontece dentro da cadeia: o
-*look* se dissolve efeito por efeito. O enquadramento nunca entra na mistura —
+FX e Clean *mudam* a imagem, então a mistura acontece antes do PROGRAM: o
+*look* se dissolve efeito por efeito e a opacidade dos overlays acompanha a
+mesma rampa. O enquadramento nunca entra na mistura —
 o plano não pode escorregar nem ficar meio recortado enquanto o efeito sai.
 
 Freeze e Black *substituem* a imagem, então a mistura acontece na saída, entre
-quadros inteiros. Ao apertar Freeze, a câmera continua entrando e a cadeia
-continua trabalhando: o telão vê a imagem em movimento se dissolver dentro do
+quadros inteiros. Ao apertar Freeze, a câmera continua entrando, a cadeia
+continua trabalhando e as sequências continuam rodando: o telão vê a imagem em movimento se dissolver dentro do
 congelado do instante em que você apertou. Black desce igual, e sobe de volta
 igual.
 
@@ -328,19 +422,19 @@ O monitor da **direita** é o PROGRAM: exatamente o que vai para o telão. O da
 | Botão      | O que aparece                                                |
 | ---------- | ------------------------------------------------------------ |
 | **SOURCE** | a câmera como ela chega, antes da cadeia — é aqui que você escolhe o assunto |
-| **FX**     | a imagem da cadeia: o que o botão **FX** mandaria agora       |
+| **FX**     | cadeia + overlays: o que o botão **FX** mandaria agora         |
 
 O chevron à esquerda do nome no cabeçalho recolhe a coluna de controles para
-um rail de títulos (PROGRAM, SOURCE, OUTPUT, EFFECTS). Os dois monitores
+um rail de títulos (PROGRAM, SOURCE, OUTPUT, PRESETS, OVERLAYS, EFFECTS). Os dois monitores
 ficam maiores. Clique num título para reabrir aquela seção — os modos de
 PROGRAM (FX / Clean / Freeze / Black) voltam a um clique depois disso.
 
 É assim que se monta um look sem ninguém ver: ponha o PROGRAM em **Freeze** ou
-**Black**, deixe o monitor da esquerda em **FX**, monte e ajuste o efeito
+**Black**, deixe o monitor da esquerda em **FX**, monte efeitos e overlays
 olhando ali, e só então aperte **FX**. Enquanto isso o telão continua na
 imagem parada ou no preto.
 
-Em **Clean** o look é retirado da própria cadeia, então o monitor **FX** mostra
+Em **Clean** efeitos e overlays são retirados antes do PROGRAM, então o monitor **FX** mostra
 a mesma imagem limpa e escreve a porcentagem da mistura — não é defeito do
 efeito. Para ensaiar fora do ar, use Freeze ou Black.
 
@@ -402,6 +496,7 @@ pendente; não há captura, playback ou monitoramento de conexão/desconexão.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Estrutura, RHI, threading |
 | [docs/RUNTIME.md](docs/RUNTIME.md) | `main` → `renderFrame`, ownership, mapa de arquivos |
 | [docs/EFFECT_SYSTEM.md](docs/EFFECT_SYSTEM.md) | Como adicionar um efeito |
+| [docs/OVERLAYS.md](docs/OVERLAYS.md) | Biblioteca e composição de overlays 16:9/9:16 |
 | [docs/TRACKING.md](docs/TRACKING.md) | Tracking de pessoa/objeto e enquadramento |
 | [docs/VIDEO_PIPELINE.md](docs/VIDEO_PIPELINE.md) | Pipeline M0 + contrato M1 |
 | [docs/VIRTUAL_CAMERA.md](docs/VIRTUAL_CAMERA.md) | PROGRAM como webcam (`--webcam`, macOS) |
@@ -416,7 +511,8 @@ pendente; não há captura, playback ou monitoramento de conexão/desconexão.
 
 **M1 — DeckLink IN → GPU → DeckLink OUT**, Windows. Próximo passo: validar
 FX-010 no Windows; depois avançar com captura, playback, filas e timing.
-ATEM, MIDI, áudio e presets pertencem aos milestones seguintes.
+Presets e overlays já abriram M3/M6 de forma estreita. ATEM, MIDI, áudio,
+Fill/Key, blend modes e o restante desses milestones continuam futuros.
 
 ## Licença / nome
 

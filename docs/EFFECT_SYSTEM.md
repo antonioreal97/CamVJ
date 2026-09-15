@@ -10,8 +10,13 @@ targets exist as infrastructure; that is not M2.
 The current extensions add optional looping automation to each parameter of
 each effect node, and `auto_frame`, which follows a tracked subject
 ([TRACKING.md](TRACKING.md)). Both use the existing linear chain, with no
-graph editor, preset storage or external control source. Validation of these
-extensions is pending.
+graph editor or external control source. Scene presets can store the chain and
+its loops; live camera/tracking validation remains separate.
+
+Operator graphics are deliberately **not effects**. `OverlaySystem` composites
+a bounded managed-media stack after `EffectChain`, so import, playback and
+layer order do not become fake `ParameterSet` nodes or weaken the four-file
+effect rule below. See [OVERLAYS.md](OVERLAYS.md).
 
 ---
 
@@ -108,7 +113,8 @@ Loop controls are available in the effect parameter panel; source parameters
 keep their existing manual controls. While Loop is enabled, the parameter's
 normal control displays the effective value and manual editing is disabled.
 Right-clicking that control still resets the parameter and removes the loop.
-All loop state lasts for the current session only. Persistence remains M3;
+All loop state is included when a scene preset is saved. Without a save, loops
+last for the current session only.
 MIDI and audio modulation remain M5.
 
 ---
@@ -311,8 +317,9 @@ Both layouts share one per-parameter renderer, so the sidebar's single column
 and the inspector's several cannot drift apart. An effect that needs bespoke UI
 code is a design smell. Adding a built-in never requires changing either panel.
 
-The default chain is a convenience for the first frame, not a preset system.
-Presets (FX-009) are M3.
+The default chain is a convenience for the first frame. Scene presets (FX-009)
+recall a full look, including the separate overlay stack in schema v2 — see the
+PRESETS panel, `src/presets/` and [OVERLAYS.md](OVERLAYS.md).
 
 ---
 

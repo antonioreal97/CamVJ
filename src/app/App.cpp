@@ -1,7 +1,9 @@
 #include "app/App.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
+#include <exception>
 #include <cstdio>
 #include <filesystem>
 #include <thread>
@@ -13,7 +15,11 @@
 #include "effects/EffectRegistry.h"
 #include "gpu/Backend.h"
 #include "platform/display_routing.h"
+#include "presets/boot_state.h"
+#include "presets/preset_store.h"
+#include "presets/scene_preset.h"
 #include "tracking/source_mapping.h"
+#include "ui/Inspector.h"
 
 namespace atemfx {
 
@@ -50,6 +56,75 @@ bool writePpm(const std::string& path, const std::vector<uint8_t>& rgba, uint32_
 
     std::fclose(file);
     return true;
+}
+
+OverlayAspect overlayAspect(OverlayCanvasFormat format)
+{
+    return format == OverlayCanvasFormat::Portrait9x16
+        ? OverlayAspect::Portrait9x16 : OverlayAspect::Landscape16x9;
+}
+
+OverlayCanvasFormat overlayCanvasFormat(OverlayAspect aspect)
+{
+    return aspect == OverlayAspect::Portrait9x16
+        ? OverlayCanvasFormat::Portrait9x16 : OverlayCanvasFormat::Landscape16x9;
+}
+
+OverlayPlayback overlayPlayback(OverlayPanelPlayback playback)
+{
+    return playback == OverlayPanelPlayback::OneShot
+        ? OverlayPlayback::OneShot : OverlayPlayback::Loop;
+}
+
+OverlayPanelPlayback overlayPanelPlayback(OverlayPlayback playback)
+{
+    return playback == OverlayPlayback::OneShot
+        ? OverlayPanelPlayback::OneShot : OverlayPanelPlayback::Loop;
+}
+
+OverlayMediaType overlayMediaType(OverlayKind kind)
+{
+    return kind == OverlayKind::PngSequence
+        ? OverlayMediaType::PngSequence : OverlayMediaType::StillPng;
+}
+
+bool lessCaseInsensitive(const OverlayAsset& left, const OverlayAsset& right)
+{
+    const std::size_t common = std::min(left.name.size(), right.name.size());
+    for (std::size_t i = 0; i < common; ++i)
+    {
+        const unsigned char a = static_cast<unsigned char>(left.name[i]);
+        const unsigned char b = static_cast<unsigned char>(right.name[i]);
+        const char lowerA = static_cast<char>(std::tolower(a));
+        const char lowerB = static_cast<char>(std::tolower(b));
+        if (lowerA != lowerB) return lowerA < lowerB;
+    }
+    if (left.name.size() != right.name.size()) return left.name.size() < right.name.size();
+    return left.id < right.id;
+}
+
+OverlayStackConfig overlayConfigFromPreset(const ScenePreset& preset)
+{
+    OverlayStackConfig config;
+    config.layerCount = std::min(preset.overlays.size(), kMaxOverlayLayers);
+    for (std::size_t i = 0; i < config.layerCount; ++i)
+    {
+        const SceneOverlayState& saved = preset.overlays[i];
+        OverlayLayerConfig& layer = config.layers[i];
+        layer.assetId = saved.assetId;
+        layer.enabled = saved.enabled;
+        layer.opacity = saved.opacity;
+        layer.playback = saved.playback;
+        layer.framesPerSecond = saved.framesPerSecond;
+    }
+    return config;
+}
+
+std::string overlayImportName(const std::filesystem::path& path, OverlayMediaType mediaType)
+{
+    std::string name = mediaType == OverlayMediaType::PngSequence
+        ? path.filename().string() : path.stem().string();
+    return name.empty() ? "Overlay" : name;
 }
 
 } // namespace
@@ -105,12 +180,34 @@ bool App::initialize(const AppOptions& options)
 
     startTracking();
 
-    int requested = options_.sourceId.empty() ? 0 : -1;
-    if (!options_.sourceId.empty())
+    // Venue boot restores the last source / display / portrait unless the
+    // command line already picked them. CLI wins so a scripted demo stays
+    // deterministic.
+    BootState boot;
+    std::string bootError;
+    const bool haveBoot = loadBootState(boot, bootError);
+    std::string effectiveSourceId = options_.sourceId;
+    std::string effectiveOutputId = options_.outputDisplayId;
+    if (haveBoot)
+    {
+        if (effectiveSourceId.empty() && !boot.sourceId.empty())
+        {
+            effectiveSourceId = boot.sourceId;
+            ATEMFX_LOG_INFO("Venue boot: source %s", effectiveSourceId.c_str());
+        }
+        if (effectiveOutputId.empty() && !boot.outputDisplayId.empty())
+        {
+            effectiveOutputId = boot.outputDisplayId;
+            ATEMFX_LOG_INFO("Venue boot: output %s", effectiveOutputId.c_str());
+        }
+    }
+
+    int requested = effectiveSourceId.empty() ? 0 : -1;
+    if (!effectiveSourceId.empty())
     {
         for (int i = 0; i < static_cast<int>(availableSources_.size()); ++i)
         {
-            if (availableSources_[i].id == options_.sourceId)
+            if (availableSources_[i].id == effectiveSourceId)
             {
                 requested = i;
                 break;
@@ -118,10 +215,10 @@ bool App::initialize(const AppOptions& options)
         }
         if (requested < 0)
         {
-            status_ = "Input unavailable: " + options_.sourceId + ". Select an input to recover.";
+            status_ = "Input unavailable: " + effectiveSourceId + ". Select an input to recover.";
             sourceDisconnected_ = true;
             ATEMFX_LOG_WARN("Unknown input '%s'; holding black until an input is selected",
-                            options_.sourceId.c_str());
+                            effectiveSourceId.c_str());
         }
     }
 
@@ -143,7 +240,38 @@ bool App::initialize(const AppOptions& options)
     {
         return false;
     }
+    if (haveBoot)
+    {
+        for (std::size_t i = 0; i < chain_.size(); ++i)
+        {
+            if (chain_.at(i).descriptor().typeId != "auto_frame") continue;
+            if (Parameter* portrait = chain_.at(i).parameters().find("portrait"))
+            {
+                portrait->setBool(boot.portrait);
+            }
+            break;
+        }
+    }
     chain_.prepare(effectContext_);
+
+    overlayPicker_ = createOverlaySourcePicker();
+    std::string overlayLibraryError;
+    if (!overlayLibrary_.scan(overlayLibraryError))
+    {
+        // A read-only failure must not take the video engine down. The panel
+        // reports it and remains available for a later successful import.
+        overlayPanelSnapshot_.status = "Overlay library: " + overlayLibraryError;
+        ATEMFX_LOG_WARN("Overlay library: %s", overlayLibraryError.c_str());
+    }
+    std::string overlayError;
+    if (!overlaySystem_.initialize(effectContext_, overlayLibrary_, overlayError))
+    {
+        ATEMFX_LOG_ERROR("Overlay system: %s", overlayError.c_str());
+        return false;
+    }
+    overlaysInitialized_ = true;
+    rebuildOverlayAssetUi();
+    refreshOverlayUi();
 
     std::string programError;
     if (!programOutput_.initialize(effectContext_, programError))
@@ -170,7 +298,7 @@ bool App::initialize(const AppOptions& options)
                         display.primary ? " (primary)" : "");
     }
 
-    if (!options_.outputDisplayId.empty())
+    if (!effectiveOutputId.empty())
     {
         if (options_.headless)
         {
@@ -181,7 +309,7 @@ bool App::initialize(const AppOptions& options)
             int index = -1;
             for (int i = 0; i < static_cast<int>(displays_.size()); ++i)
             {
-                if (displays_[i].id == options_.outputDisplayId)
+                if (displays_[i].id == effectiveOutputId)
                 {
                     index = i;
                     break;
@@ -192,7 +320,7 @@ bool App::initialize(const AppOptions& options)
             {
                 outputStatus_ = "Requested display unavailable. Select an output to send PROGRAM.";
                 ATEMFX_LOG_WARN("Unknown display '%s'; starting with no output",
-                                options_.outputDisplayId.c_str());
+                                effectiveOutputId.c_str());
             }
             else if (!openOutput(index))
             {
@@ -406,6 +534,7 @@ bool App::selectSource(int index)
     ATEMFX_LOG_INFO("Input selected: %s (%s)",
                     descriptor.displayName.c_str(),
                     descriptor.category.c_str());
+    persistBootState();
     return true;
 }
 
@@ -566,6 +695,7 @@ bool App::openOutput(int displayIndex)
                     display.name.c_str(),
                     outputSurface_->width(),
                     outputSurface_->height());
+    persistBootState();
     return true;
 }
 
@@ -625,6 +755,9 @@ void App::serviceOutput()
         requestOutputClose_ = false;
         requestedDisplay_   = -1;
         closeOutput();
+        // Operator stopped the wall (or the route died): next venue boot must
+        // not reopen a display that is no longer the show path.
+        persistBootState();
     }
 
     if (routeLoss != DisplayRouteLoss::None)
@@ -711,6 +844,553 @@ void App::serviceWebcam()
 int App::webcamResult() const
 {
     return (options_.webcam && webcamFailed_) ? 1 : 0;
+}
+
+void App::persistBootState()
+{
+    // During initialize the chain is not ready yet; writing a partial boot
+    // would wipe the portrait flag the venue file already holds.
+    if (chain_.size() == 0)
+    {
+        return;
+    }
+
+    BootState state;
+    if (currentSource_ >= 0 &&
+        currentSource_ < static_cast<int>(availableSources_.size()))
+    {
+        state.sourceId = availableSources_[static_cast<std::size_t>(currentSource_)].id;
+    }
+    if (currentDisplay_ >= 0 &&
+        currentDisplay_ < static_cast<int>(displays_.size()))
+    {
+        state.outputDisplayId = displays_[static_cast<std::size_t>(currentDisplay_)].id;
+    }
+    for (std::size_t i = 0; i < chain_.size(); ++i)
+    {
+        if (chain_.at(i).descriptor().typeId != "auto_frame") continue;
+        if (const Parameter* portrait = chain_.at(i).parameters().find("portrait"))
+        {
+            state.portrait = portrait->asBool();
+        }
+        break;
+    }
+
+    std::string error;
+    if (!saveBootState(state, error))
+    {
+        ATEMFX_LOG_WARN("Venue boot not saved: %s", error.c_str());
+    }
+}
+
+bool App::recallPresetById(const std::string& id)
+{
+    ScenePreset preset;
+    std::string error;
+    if (!findFactoryPreset(id, preset) && !loadUserPreset(id, preset, error))
+    {
+        status_ = "Preset not found: " + id;
+        ATEMFX_LOG_WARN("%s", status_.c_str());
+        return false;
+    }
+
+    const OverlayStackConfig overlayConfig = overlayConfigFromPreset(preset);
+    if (!overlaySystem_.validateConfig(overlayConfig, error))
+    {
+        status_ = "Recall failed: " + error;
+        ATEMFX_LOG_ERROR("%s", status_.c_str());
+        return false;
+    }
+
+    if (!applyScene(preset, chain_, effectContext_, programMode_, programTransition_, error))
+    {
+        status_ = "Recall failed: " + error;
+        ATEMFX_LOG_ERROR("%s", status_.c_str());
+        return false;
+    }
+    if (!overlaySystem_.applyConfig(overlayConfig, error))
+    {
+        // validateConfig above makes this reachable only for an unexpected
+        // runtime failure. Report it loudly; silently recalling half a look
+        // would be worse than leaving the operator with a clear fault.
+        status_ = "Recall failed: " + error;
+        ATEMFX_LOG_ERROR("%s", status_.c_str());
+        return false;
+    }
+
+    ui::closeInspector();
+    status_ = "Look: " + preset.name;
+    ATEMFX_LOG_INFO("Recalled preset '%s'", preset.name.c_str());
+    persistBootState();
+    return true;
+}
+
+bool App::saveCurrentPreset(const std::string& name)
+{
+    const std::string id = presetIdFromName(name);
+    ScenePreset       preset =
+        captureScene(chain_, programMode_, overlaySystem_.config(),
+                     id, name.empty() ? id : name);
+    std::string error;
+    if (!saveUserPreset(preset, error))
+    {
+        status_ = "Save failed: " + error;
+        ATEMFX_LOG_ERROR("%s", status_.c_str());
+        return false;
+    }
+    status_ = "Saved look: " + preset.name;
+    rebuildOverlayAssetUi();
+    return true;
+}
+
+void App::servicePresets()
+{
+    if (operationLocked_)
+    {
+        recallPresetId_.clear();
+        requestPresetSave_ = false;
+        savePresetName_.clear();
+        return;
+    }
+
+    if (!recallPresetId_.empty())
+    {
+        const std::string id = recallPresetId_;
+        recallPresetId_.clear();
+        recallPresetById(id);
+    }
+
+    if (requestPresetSave_)
+    {
+        requestPresetSave_ = false;
+        const std::string name = savePresetName_;
+        savePresetName_.clear();
+        saveCurrentPreset(name);
+    }
+}
+
+void App::rebuildOverlayAssetUi()
+{
+    std::vector<OverlayAsset> assets = overlayLibrary_.assets();
+    std::sort(assets.begin(), assets.end(), lessCaseInsensitive);
+
+    std::vector<ScenePreset> userPresets;
+    std::string presetError;
+    for (const PresetListEntry& entry : listUserPresets(presetError))
+    {
+        ScenePreset preset;
+        std::string loadError;
+        if (loadUserPreset(entry.id, preset, loadError))
+            userPresets.push_back(std::move(preset));
+    }
+    if (!presetError.empty())
+        ATEMFX_LOG_WARN("Overlay preset reference scan: %s", presetError.c_str());
+
+    overlayAssetUi_.clear();
+    overlayAssetUi_.reserve(assets.size());
+    const OverlayStackConfig& active = overlaySystem_.config();
+    for (const OverlayAsset& asset : assets)
+    {
+        OverlayAssetUiState item;
+        item.id = asset.id;
+        item.name = asset.name;
+        item.mediaType = overlayMediaType(asset.kind);
+
+        auto fillVariant = [&](OverlayAspect aspect, OverlayVariantUiState& target) {
+            const OverlayVariant* variant = asset.variant(aspect);
+            if (!variant) return;
+            target.present = true;
+            target.width = variant->width;
+            target.height = variant->height;
+            target.frameCount = static_cast<std::uint32_t>(variant->frames.size());
+            target.fps = asset.fpsDenominator == 0 ? 0.0f
+                : static_cast<float>(asset.fpsNumerator) /
+                  static_cast<float>(asset.fpsDenominator);
+        };
+        fillVariant(OverlayAspect::Landscape16x9, item.landscape);
+        fillVariant(OverlayAspect::Portrait9x16, item.portrait);
+
+        for (std::size_t i = 0; i < active.layerCount; ++i)
+        {
+            if (active.layers[i].assetId == asset.id)
+            {
+                item.inStack = true;
+                break;
+            }
+        }
+        for (const ScenePreset& preset : userPresets)
+        {
+            const bool referenced = std::any_of(
+                preset.overlays.begin(), preset.overlays.end(),
+                [&](const SceneOverlayState& layer) { return layer.assetId == asset.id; });
+            if (referenced) ++item.presetReferences;
+        }
+        overlayAssetUi_.push_back(std::move(item));
+    }
+    overlayPanelSnapshot_.assets = &overlayAssetUi_;
+}
+
+void App::refreshOverlayUi()
+{
+    const OverlayUiSnapshot& source = overlaySystem_.snapshot();
+    overlayPanelSnapshot_.format = overlayCanvasFormat(
+        effectContext_.outputAspect < 1.0f ? OverlayAspect::Portrait9x16
+                                           : OverlayAspect::Landscape16x9);
+
+    bool rebuild = overlayLayerUi_.size() != source.layerCount;
+    if (!rebuild)
+    {
+        for (std::size_t uiIndex = 0; uiIndex < source.layerCount; ++uiIndex)
+        {
+            const std::size_t sourceIndex = source.layerCount - 1U - uiIndex;
+            if (overlayLayerUi_[uiIndex].id != source.layers[sourceIndex].config.layerId)
+            {
+                rebuild = true;
+                break;
+            }
+        }
+    }
+    if (rebuild)
+    {
+        overlayLayerUi_.clear();
+        overlayLayerUi_.resize(source.layerCount);
+    }
+
+    for (std::size_t uiIndex = 0; uiIndex < source.layerCount; ++uiIndex)
+    {
+        const std::size_t sourceIndex = source.layerCount - 1U - uiIndex;
+        const OverlayLayerStatus& status = source.layers[sourceIndex];
+        OverlayLayerUiState& target = overlayLayerUi_[uiIndex];
+        const OverlayAsset* asset = overlayLibrary_.find(status.config.assetId);
+        if (rebuild || target.assetId != status.config.assetId)
+        {
+            target.id = status.config.layerId;
+            target.assetId = status.config.assetId;
+            target.name = asset ? asset->name : status.config.assetId;
+            target.mediaType = asset ? overlayMediaType(asset->kind)
+                                     : OverlayMediaType::StillPng;
+        }
+        target.enabled = status.config.enabled;
+        target.opacity = status.config.opacity;
+        target.playback = overlayPanelPlayback(status.config.playback);
+        target.fps = status.config.framesPerSecond;
+        target.paused = status.paused;
+        target.displayedFrame = status.displayedFrame;
+        target.frameCount = status.frameCount;
+        target.underflows = status.underflows;
+        if (target.status != status.error) target.status = status.error;
+        target.transitioning = status.phase == OverlayLayerPhase::Buffering ||
+                               status.phase == OverlayLayerPhase::FadingIn ||
+                               status.phase == OverlayLayerPhase::FadingOut ||
+                               status.replacing;
+        target.visible = status.phase == OverlayLayerPhase::FadingIn ||
+                         status.phase == OverlayLayerPhase::Live ||
+                         status.phase == OverlayLayerPhase::FadingOut;
+        const OverlayAspect aspect = overlayPanelSnapshot_.format ==
+                OverlayCanvasFormat::Portrait9x16
+            ? OverlayAspect::Portrait9x16 : OverlayAspect::Landscape16x9;
+        target.variantAvailable = asset && asset->variant(aspect);
+    }
+
+    for (OverlayAssetUiState& asset : overlayAssetUi_) asset.inStack = false;
+    for (const OverlayLayerUiState& layer : overlayLayerUi_)
+    {
+        for (OverlayAssetUiState& asset : overlayAssetUi_)
+        {
+            if (asset.id == layer.assetId)
+            {
+                asset.inStack = true;
+                break;
+            }
+        }
+    }
+    overlayPanelSnapshot_.layers = &overlayLayerUi_;
+    overlayPanelSnapshot_.assets = &overlayAssetUi_;
+    overlayPanelSnapshot_.importSerial = overlayImportSerial_;
+}
+
+bool App::beginOverlayPicker(const OverlayUiCommand& command)
+{
+    if (!overlayPicker_ || overlayImportFuture_.valid() ||
+        overlayPicker_->state() == OverlayPickerState::Picking)
+    {
+        overlayPanelSnapshot_.status = "Finish or cancel the current import first";
+        return false;
+    }
+
+    pendingOverlayImport_ = {};
+    pendingOverlayImport_.mediaType = command.mediaType;
+    pendingOverlayImport_.format = command.format;
+    pendingOverlayImport_.assetId = command.assetId;
+    if (command.type == OverlayUiCommandType::AddVariant)
+        pendingOverlayImport_.action = OverlayImportAction::AddVariant;
+    else if (command.type == OverlayUiCommandType::ReplaceVariant)
+        pendingOverlayImport_.action = OverlayImportAction::ReplaceVariant;
+    else
+        pendingOverlayImport_.action = OverlayImportAction::NewAsset;
+
+    const OverlayPickerMode mode = command.mediaType == OverlayMediaType::PngSequence
+        ? OverlayPickerMode::SequenceDirectory : OverlayPickerMode::StillPng;
+    std::string error;
+    if (!overlayPicker_->begin(mode, window_ ? window_->nativeHandle() : nullptr, error))
+    {
+        overlayPanelSnapshot_.import.phase = OverlayImportPhase::Failed;
+        overlayPanelSnapshot_.import.status = error;
+        return false;
+    }
+    overlayPanelSnapshot_.status.clear();
+    overlayPanelSnapshot_.import = {};
+    overlayPanelSnapshot_.import.phase = OverlayImportPhase::Picking;
+    overlayPanelSnapshot_.import.cancellable = true;
+    overlayPanelSnapshot_.import.status = "Choose overlay source";
+    return true;
+}
+
+void App::launchOverlayImport(const std::filesystem::path& source)
+{
+    const PendingOverlayImport pending = pendingOverlayImport_;
+    const std::filesystem::path root = overlayLibrary_.rootDirectory();
+    const std::string displayName = overlayImportName(source, pending.mediaType);
+    overlayImportControl_ = std::make_shared<OverlayImportControl>();
+    const std::shared_ptr<OverlayImportControl> control = overlayImportControl_;
+
+    try
+    {
+        overlayImportFuture_ = std::async(
+            std::launch::async,
+            [root, source, displayName, pending, control]() mutable {
+                OverlayImportJobResult result;
+                try
+                {
+                    auto library = std::make_unique<OverlayLibrary>(root);
+                    if (!library->scan(result.error)) return result;
+
+                    OverlayImportSource selected;
+                    selected.path = source;
+                    selected.aspect = overlayAspect(pending.format);
+                    selected.inferAspect = pending.action == OverlayImportAction::NewAsset;
+
+                    OverlayAsset asset;
+                    bool ok = false;
+                    if (pending.action == OverlayImportAction::NewAsset)
+                    {
+                        OverlayImportRequest request;
+                        request.name = displayName;
+                        request.sources.push_back(std::move(selected));
+                        ok = library->importAsset(request, asset, result.error, control.get());
+                    }
+                    else
+                    {
+                        ok = library->replaceVariant(pending.assetId, selected, asset,
+                                                     result.error, control.get());
+                    }
+                    if (!ok)
+                    {
+                        result.cancelled = control->cancelRequested.load(
+                            std::memory_order_acquire);
+                        return result;
+                    }
+                    result.assetId = asset.id;
+                    result.assetName = asset.name;
+                    result.library = std::move(library);
+                }
+                catch (const std::exception& exception)
+                {
+                    result.error = exception.what();
+                }
+                return result;
+            });
+    }
+    catch (const std::exception& exception)
+    {
+        overlayImportControl_.reset();
+        overlayPanelSnapshot_.import.phase = OverlayImportPhase::Failed;
+        overlayPanelSnapshot_.import.status = exception.what();
+        return;
+    }
+
+    overlayPanelSnapshot_.import = {};
+    overlayPanelSnapshot_.import.phase = OverlayImportPhase::Validating;
+    overlayPanelSnapshot_.import.cancellable = true;
+    overlayPanelSnapshot_.import.status = "Validating PNG";
+}
+
+void App::consumeOverlayCommand()
+{
+    if (overlayCommand_.type == OverlayUiCommandType::None) return;
+    OverlayUiCommand command = std::move(overlayCommand_);
+    overlayCommand_ = {};
+
+    const bool structural = command.type == OverlayUiCommandType::MoveLayer ||
+        command.type == OverlayUiCommandType::RemoveLayer ||
+        command.type == OverlayUiCommandType::AddLayer ||
+        command.type == OverlayUiCommandType::BeginImport ||
+        command.type == OverlayUiCommandType::AddVariant ||
+        command.type == OverlayUiCommandType::ReplaceVariant ||
+        command.type == OverlayUiCommandType::RemoveAsset;
+    if (structural && operationLocked_)
+    {
+        overlayPanelSnapshot_.status = "Unlock Operation to change overlay structure";
+        return;
+    }
+
+    std::string error;
+    switch (command.type)
+    {
+    case OverlayUiCommandType::SetLayerEnabled:
+        if (!overlaySystem_.setLayerEnabled(command.layerId, command.enabled, error))
+            overlayPanelSnapshot_.status = error.empty() ? "Overlay layer not found" : error;
+        break;
+    case OverlayUiCommandType::SetLayerOpacity:
+        overlaySystem_.setLayerOpacity(command.layerId, command.opacity);
+        break;
+    case OverlayUiCommandType::SetLayerPlayback:
+        overlaySystem_.setLayerPlayback(command.layerId, overlayPlayback(command.playback));
+        break;
+    case OverlayUiCommandType::SetLayerFps:
+        overlaySystem_.setLayerFramesPerSecond(command.layerId, command.fps);
+        break;
+    case OverlayUiCommandType::SetLayerPaused:
+        overlaySystem_.setLayerPaused(command.layerId, command.paused);
+        break;
+    case OverlayUiCommandType::RestartLayer:
+        if (!overlaySystem_.triggerLayer(command.layerId, error))
+            overlayPanelSnapshot_.status = error.empty() ? "Overlay layer not found" : error;
+        break;
+    case OverlayUiCommandType::MoveLayer:
+        overlaySystem_.moveLayer(command.layerId, command.moveDelta);
+        break;
+    case OverlayUiCommandType::RemoveLayer:
+        overlaySystem_.removeLayer(command.layerId);
+        break;
+    case OverlayUiCommandType::AddLayer:
+    {
+        const OverlayLayerId layer = overlaySystem_.addLayer(command.assetId, error);
+        if (layer == 0 || !error.empty())
+            overlayPanelSnapshot_.status = error.empty() ? "Could not add overlay layer" : error;
+        break;
+    }
+    case OverlayUiCommandType::BeginImport:
+    case OverlayUiCommandType::AddVariant:
+    case OverlayUiCommandType::ReplaceVariant:
+        beginOverlayPicker(command);
+        break;
+    case OverlayUiCommandType::RemoveAsset:
+    {
+        const auto found = std::find_if(
+            overlayAssetUi_.begin(), overlayAssetUi_.end(),
+            [&](const OverlayAssetUiState& asset) { return asset.id == command.assetId; });
+        if (found == overlayAssetUi_.end() || found->inStack || found->presetReferences > 0)
+        {
+            overlayPanelSnapshot_.status = "Remove active and preset references first";
+            break;
+        }
+        if (!overlayLibrary_.removeAsset(command.assetId, error))
+        {
+            overlayPanelSnapshot_.status = error;
+            break;
+        }
+        overlaySystem_.setLibrary(overlayLibrary_);
+        rebuildOverlayAssetUi();
+        ui::inspectOverlayLibrary();
+        overlayPanelSnapshot_.status = "Overlay moved to the library trash";
+        break;
+    }
+    case OverlayUiCommandType::CancelImport:
+        if (overlayPicker_) overlayPicker_->cancel();
+        if (overlayImportControl_)
+            overlayImportControl_->cancelRequested.store(true, std::memory_order_release);
+        overlayPanelSnapshot_.import.status = "Cancelling import";
+        break;
+    case OverlayUiCommandType::DismissStatus:
+        overlayPanelSnapshot_.status.clear();
+        if (overlayPanelSnapshot_.import.phase == OverlayImportPhase::Failed)
+            overlayPanelSnapshot_.import = {};
+        break;
+    case OverlayUiCommandType::None:
+        break;
+    }
+}
+
+void App::serviceOverlays()
+{
+    if (!overlaysInitialized_) return;
+    overlaySystem_.commitControlPlane();
+    consumeOverlayCommand();
+
+    if (operationLocked_)
+    {
+        if (overlayPicker_ && overlayPicker_->state() == OverlayPickerState::Picking)
+            overlayPicker_->cancel();
+        if (overlayImportControl_)
+            overlayImportControl_->cancelRequested.store(true, std::memory_order_release);
+    }
+
+    OverlayPickerResult picked;
+    if (overlayPicker_ && overlayPicker_->poll(picked))
+    {
+        if (picked.state == OverlayPickerState::Selected)
+        {
+            launchOverlayImport(picked.path);
+        }
+        else if (picked.state == OverlayPickerState::Failed)
+        {
+            overlayPanelSnapshot_.import.phase = OverlayImportPhase::Failed;
+            overlayPanelSnapshot_.import.status = picked.error;
+        }
+        else
+        {
+            overlayPanelSnapshot_.import = {};
+        }
+    }
+
+    if (overlayImportFuture_.valid())
+    {
+        if (overlayImportControl_)
+        {
+            const float progress = overlayImportControl_->progress.load(std::memory_order_acquire);
+            overlayPanelSnapshot_.import.progress = progress;
+            overlayPanelSnapshot_.import.cancellable = true;
+            overlayPanelSnapshot_.import.phase = progress < 0.08f
+                ? OverlayImportPhase::Validating
+                : (progress < 0.90f ? OverlayImportPhase::Copying
+                                    : OverlayImportPhase::Preparing);
+            overlayPanelSnapshot_.import.status = progress < 0.08f
+                ? "Validating PNG" : (progress < 0.90f ? "Copying to library"
+                                                       : "Publishing asset");
+            if (overlayImportControl_->cancelRequested.load(std::memory_order_acquire))
+                overlayPanelSnapshot_.import.status = "Cancelling import";
+        }
+
+        if (overlayImportFuture_.wait_for(std::chrono::seconds(0)) ==
+            std::future_status::ready)
+        {
+            OverlayImportJobResult result = overlayImportFuture_.get();
+            overlayImportControl_.reset();
+            if (result.library)
+            {
+                overlayLibrary_ = std::move(*result.library);
+                overlaySystem_.setLibrary(overlayLibrary_);
+                rebuildOverlayAssetUi();
+                ++overlayImportSerial_;
+                overlayPanelSnapshot_.lastImportedAssetId = result.assetId;
+                overlayPanelSnapshot_.status = "Imported: " + result.assetName;
+                overlayPanelSnapshot_.import = {};
+            }
+            else if (result.cancelled)
+            {
+                overlayPanelSnapshot_.import = {};
+            }
+            else
+            {
+                overlayPanelSnapshot_.import.phase = OverlayImportPhase::Failed;
+                overlayPanelSnapshot_.import.progress = 0.0f;
+                overlayPanelSnapshot_.import.cancellable = false;
+                overlayPanelSnapshot_.import.status = result.error.empty()
+                    ? "Overlay import failed" : result.error;
+            }
+        }
+    }
 }
 
 void App::updateEffectContext()
@@ -809,6 +1489,8 @@ bool App::renderFrame()
     // when the operator's monitor cannot provide a preview drawable.
     serviceOutput();
     serviceWebcam();
+    servicePresets();
+    serviceOverlays();
 
     // The preview can lose its drawable while the output must keep running:
     // minimised, or — the case that actually bites — completely covered by the
@@ -895,6 +1577,12 @@ bool App::renderFrame()
     {
         frame = &chain_.process(effectContext_, *sourceFrame, effectMix, source_->bypassEffects());
     }
+    overlaySystem_.service(effectContext_);
+    if (frame)
+    {
+        frame = &overlaySystem_.composite(effectContext_, *frame, effectMix,
+                                          source_->bypassEffects());
+    }
 
     // The preview bus, read before program policy can hold this image or
     // replace it with black, and before ProgramOutput restores the framing
@@ -932,6 +1620,7 @@ bool App::renderFrame()
     if (window_ && havePreview)
     {
         device_->beginUi();
+        refreshOverlayUi();
 
         UiFrameState state;
         state.chain               = &chain_;
@@ -988,6 +1677,11 @@ bool App::renderFrame()
         state.vsync               = &options_.vsync;
         state.requestShaderReload = &requestShaderReload_;
         state.status              = &status_;
+        state.recallPresetId      = &recallPresetId_;
+        state.savePresetName      = &savePresetName_;
+        state.requestPresetSave   = &requestPresetSave_;
+        state.overlays            = &overlayPanelSnapshot_;
+        state.overlayCommand      = &overlayCommand_;
         trackingStatus_           = tracker_ ? tracker_->status() : trackingStatus_;
         state.trackingStatus      = &trackingStatus_;
         state.trackingAvailable   = tracker_ != nullptr;
@@ -1104,8 +1798,34 @@ bool App::dumpLastFrame(const std::string& path)
 
 void App::shutdown()
 {
+    // Capture venue routing while the chain and display selection still exist.
+    persistBootState();
+
+    if (overlayPicker_) overlayPicker_->cancel();
+    if (overlayImportControl_)
+        overlayImportControl_->cancelRequested.store(true, std::memory_order_release);
+    if (overlayImportFuture_.valid())
+    {
+        try
+        {
+            static_cast<void>(overlayImportFuture_.get());
+        }
+        catch (const std::exception& exception)
+        {
+            ATEMFX_LOG_WARN("Overlay import shutdown: %s", exception.what());
+        }
+        catch (...)
+        {
+            ATEMFX_LOG_WARN("Overlay import shutdown: unknown failure");
+        }
+    }
+    overlayImportControl_.reset();
+    overlayPicker_.reset();
+
     ui_.shutdown();
     programOutput_.shutdown();
+    overlaySystem_.shutdown();
+    overlaysInitialized_ = false;
     chain_.shutdown();
 
     if (source_)

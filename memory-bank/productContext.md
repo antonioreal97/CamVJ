@@ -29,17 +29,20 @@ Janela 1600×900, processamento 1920×1080, identidade CamVJ (luz sobre preto):
 - **Program** — no topo da coluna: FX / Clean / Freeze / Black
 - **Source** — entrada, tracking (âmbar Tungsten quando o assunto está travado)
 - **Output** — tela de envio e webcam virtual; Stop em magenta quando está no ar
+- **Presets** — looks de fábrica e do operador (cadeia + overlays + FX/Clean); boot de venue
+  separado (última fonte / tela / retrato)
+- **Overlays** — biblioteca gerenciada do operador, variantes 16:9/9:16 e
+  pilha limitada a quatro layers; controles abrem no inspector largo
 - **Effects** — add/remove/reorder/enable; parâmetros abrem no inspector largo
   embaixo do preview, não no sidebar
 - **Preview** — monitor da esquerda é um barramento SOURCE (ciano, caixas do
-  assunto/recorte) | FX (a imagem da cadeia); o da direita é PROGRAM (magenta;
+  assunto/recorte) | FX (cadeia + overlays); o da direita é PROGRAM (magenta;
   LIVE se a saída está enviando)
 - **Stats** — rate, GPU ms, engine (vsync, reload), frametime; cede o espaço
   ao inspector quando um efeito está aberto
 
-Não há presets, botões 1–5, Program/Preview de mixer (o PROGRAM daqui são os
-quatro estados de segurança, não o barramento da ATEM), nem seletor de
-DeckLink.
+Não há botões 1–5, Program/Preview de mixer (o PROGRAM daqui são os quatro
+estados de segurança, não o barramento da ATEM), nem seletor de DeckLink.
 
 M1 começou com `--list-decklink`, um comando de diagnóstico separado que
 lista nomes, capacidades e conexões de vídeo suportadas. Não mostra sinal
@@ -66,4 +69,4 @@ visão (`docs/VISION.md`), fora do binário.
 | Fonte | Test pattern GPU ou câmera do sistema | DeckLink capture |
 | Saída | Preview, tela (HDMI/DP), webcam virtual no macOS, PPM | DeckLink playback |
 | Threads | Uma (UI + process) | Capture / GPU / Output separados |
-| Controle | Mouse na UI | UI + ATEM (AUX, FX TAKE) + presets |
+| Controle | Mouse na UI + presets de cena | UI + ATEM (AUX, FX TAKE) + presets |

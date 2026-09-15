@@ -22,6 +22,12 @@ VideoSource                shader "test_pattern" or "source_blit"
    EffectChain             ping-pong scratch[0], scratch[1]
         │                  enabled effects only; false process() = skip
         ▼
+   OverlaySystem           bounded managed RGBA stack; GPU alpha passes
+        │
+        ▼
+   ProgramOutput           FX / Clean / Freeze / Black safety gate
+        │
+        ▼
    lastOutput_             GpuTexture* into the pool
         │
         ├── output:    OutputSurface → borderless window on a chosen display
@@ -34,6 +40,7 @@ VideoSource                shader "test_pattern" or "source_blit"
 | Surface                         | Format                                      |
 | ------------------------------- | ------------------------------------------- |
 | Processing targets              | RGBA16Float / `R16G16B16A16_FLOAT`          |
+| Camera/overlay upload textures  | 8-bit BGRA (overlay PNGs are premultiplied) |
 | Presentation (swap chain)       | 8-bit UNORM / `BGRA8Unorm`                  |
 | Display output (swap chain)     | 8-bit UNORM / `BGRA8Unorm`                  |
 | `--dump`                        | 8-bit RGB PPM (P6), top row first           |
@@ -102,9 +109,13 @@ Its shader draws a full-canvas 16:9 boundary and the centred 9:16 window used
 by Auto Frame: UV x=0.341796875..0.658203125, y=0..1, or
 x=656.25..1263.75 on the fixed 1920×1080 canvas (607.5×1080). Guides are
 video pixels, so both display and virtual-camera outputs receive them.
-This selection requests a complete chain bypass, including framing, to keep
-calibration geometry intact. PROGRAM's Freeze/Black safety remains downstream.
+This selection requests a complete chain and overlay bypass, including
+framing, to keep calibration geometry intact. PROGRAM's Freeze/Black safety remains downstream.
 See [RUNTIME.md](RUNTIME.md) for the source processing policy.
+
+Operator graphics enter through a managed PNG library and are composed after
+the effect chain, never decoded from disk in the frame path. See
+[OVERLAYS.md](OVERLAYS.md).
 
 The processed frame goes to a borderless, full-screen window on a display the
 operator picks. Downstream of the cable — an LED processor, a projector, a
@@ -264,8 +275,8 @@ The rest of this section is the contract for the remaining M1 work.
 ### Goal
 
 ```text
-SDI IN → DeckLink capture → GPU texture → EffectChain → GPU texture
-       → DeckLink playback → SDI OUT
+SDI IN → DeckLink capture → GPU texture → EffectChain → OverlaySystem
+       → ProgramOutput → DeckLink playback → SDI OUT
 ```
 
 at 1920×1080 59.94, zero dropped frames under normal operation, processing
@@ -282,7 +293,7 @@ DeckLink Capture Thread          owns the input callback; must not block
    Frame Queue                   bounded, lock-free, drops oldest
         │
         ▼
-GPU Processing Thread            owns the D3D11 immediate context + chain
+GPU Processing Thread            owns D3D11 immediate context, chain, overlays, PROGRAM
         │                        App::renderFrame() processing half
         ▼
    Output Queue                  bounded, lock-free
@@ -339,5 +350,6 @@ Diagnostic logging is mandatory on every hardware path (`AGENTS.md`).
 
 ### What M1 does not include
 
-ATEM control, MIDI, audio, presets, effect graph, Linux, a third GPU backend.
-The UI can stay as it is: preview of the processed texture plus stats.
+ATEM control, MIDI, audio, an effect graph, Linux or a third GPU backend.
+Scene presets and the bounded overlay stack already exist as independent
+extensions; M1 preserves them rather than expanding their scope.

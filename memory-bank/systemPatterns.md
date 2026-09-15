@@ -52,8 +52,9 @@ processamento de imagem na CPU nem amplia RHI ou shaders.
 
 Desligar Loop preserva configuração e fase, devolvendo o manual; religar
 retoma. Pause congela o relógio; Restart zera fase interna e mantém offset.
-Reset restaura default e limpa automação. Configuração só da sessão, UI
-genérica só nos efeitos. DAG M2, presets M3 e MIDI/áudio M5 continuam futuros.
+Reset restaura default e limpa automação. Sem save, configuração só da sessão;
+scene preset persiste o loop. UI genérica só nos efeitos. DAG M2 e MIDI/áudio
+M5 continuam futuros.
 
 Custo de um efeito novo:
 
@@ -64,11 +65,21 @@ Custo de um efeito novo:
 
 Se precisar mais, a abstração está errada.
 
+## Overlays são um estágio, não efeitos
+
+`VideoSource → EffectChain → OverlaySystem → ProgramOutput`. FX-026 mantém
+biblioteca/import/playback fora de `Effect` e de `ParameterSet`: até quatro
+PNG RGBA, variante 16:9 ou 9:16, uma sequência ativa por vez. Import e decode
+rodam em background; o frame só drena fila limitada, atualiza clocks e compõe
+por fullscreen passes. Clean usa o mesmo `effectMix`; Freeze/Black continuam
+processando atrás. Contrato em `docs/OVERLAYS.md`.
+
 ## Ownership
 
 `App` é o dono: `Window`, `GraphicsDevice`, `VideoSource` (test pattern ou
 câmera), `OutputWindow` + `OutputSurface`, `VirtualCameraOutput`, `Tracker`,
-`EffectChain`, `ProgramOutput`, `SourceHealth`, `FrameTiming`, `UiLayer`.
+`EffectChain`, `OverlayLibrary`, `OverlaySystem`, picker/import de overlay,
+`ProgramOutput`, `SourceHealth`, `FrameTiming`, `UiLayer`.
 `unique_ptr` para dono; ponteiro cru / referência para empréstimo.
 `EffectContext` e `UiFrameState` são snapshots por frame. A surface morre
 antes da janela de saída (desenha na layer dela); a webcam parando fica viva
@@ -95,8 +106,9 @@ alocações, consultas de metadados e logs de discovery não entram no hot path.
 
 `ProgramOutput` é a última etapa antes de qualquer consumidor: preview, tela
 de saída e webcam leem a mesma imagem publicada por ele. FX/Clean são as
-pontas de um dissolve de 0,35 s (`crossfade`); Freeze e Black seguram a
-imagem sem parar captura, tracking, cadeia ou surface. Perda de entrada
+pontas de um dissolve de 0,35 s (`crossfade`); Clean tira visuais e overlays,
+preservando framing. Freeze e Black seguram a imagem sem parar captura,
+tracking, cadeia, overlay playback ou surface. Perda de entrada
 trava em Freeze, nunca escolhe fonte e nunca sobrepõe um Black do operador
 (`source_health`). Detalhes em `docs/RUNTIME.md#program-safety`.
 
@@ -116,7 +128,7 @@ Toda mudança: `atem_fx --headless --frames 200`. Sem display, sem hardware.
 Em PR/push para `main`, o mesmo gate roda no Actions self-hosted macOS
 (`.github/workflows/ci.yml`), junto com CTest e `--check-shaders`.
 Para a lógica portátil, `ctest --test-dir build --output-on-failure` executa
-5 testes com `BUILD_TESTING=ON` (default): `parameter_automation`, `framing`,
-`source_mapping`, `source_health` e `program_output`. Nenhum precisa de GPU ou
-Catch2, e nenhum substitui o gate de renderização. `--check-shaders` compila
-os 14 shaders do backend sem abrir device.
+10 testes com `BUILD_TESTING=ON` (default), incluindo `scene_preset`,
+`overlay_playback`, `overlay_compositor` e `overlay_library`. Nenhum precisa
+de GPU ou Catch2, e nenhum substitui o gate de renderização.
+`--check-shaders` compila os 15 shaders do backend sem abrir fonte de vídeo.

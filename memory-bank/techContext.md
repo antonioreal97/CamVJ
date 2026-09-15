@@ -11,8 +11,8 @@
 | UI | Dear ImGui v1.91.9 (FetchContent ou `ATEMFX_IMGUI_DIR`) |
 | Janela | AppKit (pump manual) / Win32 |
 | Log | `src/core/Log.cpp` — printf UTF-8; console Windows e debugger via Unicode |
-| Config | nenhuma (sem JSON); versão vem do `project(AtemFx VERSION ...)` |
-| Testes | self-test CLI + 5 testes C++ portáteis via CTest, sem Catch2 |
+| Config | JSON próprio e escopado para presets/boot/manifests; sem config geral |
+| Testes | self-test CLI + 10 testes C++ portáteis via CTest, sem Catch2 |
 | Discovery | DeckLink SDK externo opcional, somente Windows neste projeto |
 | Webcam | extensão de câmera já instalada (OBS) via CoreMediaIO, só macOS |
 | Empacotamento | `scripts/package_macos.sh` (DMG) e `scripts/package_windows.ps1` (ZIP) |
@@ -26,11 +26,10 @@ macOS/build sem SDK usa stub indisponível. CMake fatal em Linux.
 Targets: `imgui`, `atem_fx`, `atem_fx_shaders` (copia `shaders/` para
 `$<TARGET_FILE_DIR:atem_fx>/shaders`). Binário: `build/bin/atem_fx`; no macOS
 dentro de `build/bin/atem_fx.app` (o bundle é o que dá acesso à câmera).
-Com `BUILD_TESTING=ON` (default), também `parameter_automation_test`,
-`framing_test`, `source_mapping_test`, `source_health_test` e
-`program_output_test`, registrados no CTest como `parameter_automation`,
-`framing`, `source_mapping`, `source_health` e `program_output`. Nenhuma
-dependência externa adicional; execução com
+Com `BUILD_TESTING=ON` (default), há dez checks: `parameter_automation`,
+`framing`, `source_mapping`, `display_routing`, `source_health`,
+`program_output`, `scene_preset`, `overlay_playback`, `overlay_compositor` e
+`overlay_library`. Nenhuma dependência externa adicional; execução com
 `ctest --test-dir build --output-on-failure`.
 
 ## Versão
@@ -51,8 +50,8 @@ permissão de câmera. Passo a passo em `docs/BUILD.md#versioning`.
 | Área | Tecnologia | Milestone |
 | --- | --- | --- |
 | Log | spdlog (macros já no formato) | quando hardware exigir sinks |
-| Testes | Catch2 | adoção futura; os 5 testes atuais já rodam sem framework |
-| Config / presets | JSON | M3 |
+| Testes | Catch2 | adoção futura; os 10 testes atuais já rodam sem framework |
+| Config geral | JSON | ainda sem milestone; schemas escopados já existem |
 | Captura/saída SDI | DeckLink SDK (discovery já implementado) | M1, Windows |
 | Mixer | ATEM SDK | M4, Windows |
 | Áudio | WASAPI / CoreAudio | M5 |
@@ -81,7 +80,7 @@ retorna 1. Metadados parciais geram avisos. Validação Windows ainda pendente.
 
 ## Shaders em runtime
 
-14 shaders por backend (mais `common` e, no HLSL, `fullscreen`).
+15 shaders por backend (mais `common` e, no HLSL, `fullscreen`).
 `--check-shaders` compila todos e imprime a contagem.
 
 Ordem de busca: `ATEMFX_SHADER_DIR` → `shaders/` ao lado do exe (até 5
@@ -110,8 +109,17 @@ Ramp Down/Square, fase double com wrap, ciclo em segundos (0,05–600).
 mantém automação ativa. UI no `ParameterWidgets.cpp`, só para efeitos.
 
 Operações escalares, sem alocação, lock, log ou novo recurso de GPU.
-Shaders, constant buffer de 96 bytes e RHI permanecem iguais. Estado só da
-sessão; não há arquivo de configuração ou integração MIDI/áudio.
+Shaders, constant buffer de 96 bytes e RHI permanecem iguais. Estado sem save
+fica só na sessão; scene preset persiste a configuração. Sem MIDI/áudio.
+
+## Overlays
+
+`src/overlays/` usa ImageIO/CoreGraphics no macOS e WIC/Shell no Windows, sem
+dependência de terceiros. PNG decodificado é BGRA8 premultiplicado; compositor
+trabalha em RGBA16Float pelo fullscreen pass. Dois uploads por layer estática,
+quatro uploads de sequência por aspecto e oito buffers reaproveitados no
+worker. Biblioteca e manifests ficam em Application Support/CamVJ/overlays.
+Contrato completo em `docs/OVERLAYS.md`.
 
 ## Namespace
 

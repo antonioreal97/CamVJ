@@ -1,6 +1,7 @@
 # CamVJ — Runtime
 
-**Status: M0 implemented; M1 discovery added, pending Windows validation.**
+**Status: M0 implemented; M1 discovery added, pending Windows validation;
+scene presets and FX-026 overlays are active bounded extensions.**
 This is the call sequence and ownership of the running process. Architecture
 principles live in [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -80,6 +81,9 @@ updateEffectContext()                snapshot of device pointers + timing
 TestPatternSource::initialize()
 registerBuiltinEffects()
 createDefaultChain()                 auto_frame on unless --enable
+PresetStore + BootState              scan factory/user looks; restore venue state
+OverlayLibrary::scan()               managed Application Support assets
+OverlaySystem::initialize()          compositor, fixed upload rings, decoder worker
 UiLayer::initialize()                skipped if headless
 FrameTiming::reset()
 ```
@@ -109,6 +113,8 @@ pair. macOS pumps AppKit manually so Metal can block on `nextDrawable`.
 ```text
 serviceOutput()                      open/close/re-enumerate displays; OS changes and Escape
 serviceWebcam()                      start/stop/failure even without preview
+servicePresets()                     exceptional save/recall requests
+serviceOverlays()                    picker/import/control; no disk work in processing
 device->beginFrame()                 acquire preview drawable unless minimised;
                                      Metal also skips fully occluded windows
 skip processing only if no preview, display output or webcam client
@@ -122,6 +128,8 @@ device->beginProcessing()            GPU timer starts
     mix = programTransition_.update() FX/Clean dissolve, read before the latch
     frame = chain_.process(ctx, *)   advance all node loops, render enabled
                                      nodes; Framing roles at every mix amount
+    overlaySystem_.service(ctx)      drain decoded frames; advance playback/fades
+    frame = overlaySystem_.composite() GPU stack after the chain; uses the same mix
     frame = programOutput_.render()  FX / Clean / Freeze / Black, the dissolve
                                      between whole images, and the Freeze latch
                                      when the input is not healthy
@@ -142,6 +150,13 @@ if window:
 device->endFrame(vsync)              present; vsync is forced off while an
                                      output surface is live — see below
 ```
+
+`serviceOverlays()` handles only exceptional control-plane work before the
+processing bracket: native picker completion, background import publication,
+layer commands and deferred removal. Inside processing, `OverlaySystem` drains
+only bounded predecoded results and never waits for disk or the decoder. The
+full library, format, playback and failure contracts are in
+[OVERLAYS.md](OVERLAYS.md).
 
 Output servicing precedes preview acquisition: a hidden operator window cannot
 prevent display-loss detection, Escape, webcam startup or webcam cleanup.
@@ -166,7 +181,7 @@ An unrelated display change preserves an unchanged active route. These safety
 checks run under Operation lock as well.
 
 There is no SDI output. The window's presented image is the swap chain with
-ImGui on top; the display output, when open, is the chain result alone,
+ImGui on top; the display output, when open, is PROGRAM alone,
 letterboxed onto a borderless full-screen window. While that output is live it
 is the pacer, so `endFrame` receives `options_.vsync && !outputSurface_`:
 waiting on two unsynchronised display vsyncs in series halves the frame rate. The Preview is split into two monitors. The right one is PROGRAM: what the
@@ -176,16 +191,18 @@ The left one is a two-position bus:
 | Bus      | Shows                                                          |
 | -------- | -------------------------------------------------------------- |
 | `SOURCE` | the pre-chain texture, with tracking and crop overlays and the subject picker |
-| `FX`     | `UiFrameState::chainPreview` - the chain's own image, with the same 9:16 crop and no overlays |
+| `FX`     | `UiFrameState::chainPreview` - the chain plus managed overlays, with the same 9:16 crop |
 
-`chainPreview` is the chain result captured before `ProgramOutput::render()`,
-along with the framing that produced it, because that call may hold the picture
+`chainPreview` keeps its historical name but is the image after the overlay
+compositor and before `ProgramOutput::render()`, along with the framing that
+produced it, because that call may hold the picture
 (`Freeze`), replace it (`Black`) and restore the *held* framing over the live
-one. It costs no extra GPU work: it is the image the chain already produced
+one. It costs no extra copy: it is the image the pipeline already produced
 this frame. That is what makes the FX bus a preview bus - under `Freeze` or
-`Black` the chain is still working on the next shot, and this is the only place
-that picture can be seen. Under `Clean` the look is ramped out of the chain
-itself, so the FX bus honestly shows no look and the monitor labels the mix.
+`Black` the chain and overlays are still working on the next shot, and this is
+the only place that picture can be seen. Under `Clean`, visual effects and
+overlays share the same mix and are ramped out before this snapshot, so the FX
+bus honestly shows the clean shot and the monitor labels the mix.
 
 While a framing node's parameters are open, both monitors carry a thirds grid
 and a centre cross for composing the shot - inside the framing rectangle on
@@ -205,8 +222,9 @@ inside `renderFrame()`.
 Test Pattern's **LED Mapping (16:9 + 9:16)** selection is a static GPU
 calibration chart. It sets `VideoSource::bypassEffects()` for that selection
 only (all other inputs default to false). App passes that policy into
-`EffectChain::process()`, which returns the original source after advancing
-the node clocks, before any effect or dissolve work. This preserves the full
+`EffectChain::process()` and `OverlaySystem::composite()`, which return the
+original source after advancing their clocks, before any visual or overlay
+work. This preserves the full
 canvas and exact guide dimensions even with portrait framing or a visual look
 enabled; it does not modify effect settings. The frame's reset framing metadata
 keeps the live previews on the full canvas. `ProgramOutput` still applies
@@ -239,8 +257,8 @@ that stalls, fails or does not exist costs no frame. See
 
 ## PROGRAM safety
 
-`ProgramOutput` (`src/video/program_output.h`) sits between the chain and the
-output surface. It is an output policy, not an effect: black and hold must also
+`ProgramOutput` (`src/video/program_output.h`) sits between the composed
+FX image and the output surface. It is an output policy, not an effect: black and hold must also
 work when the source has disappeared and there is no chain input at all, so it
 owns its own persistent targets rather than borrowing the chain's scratch.
 
@@ -248,22 +266,23 @@ Four modes, all reachable from one control in the PROGRAM panel — the top of
 the left column, above SOURCE, and the only panel with no fold, because
 recovery cannot depend on a disclosure triangle:
 
-| Mode     | PROGRAM shows                    | Chain           |
-| -------- | -------------------------------- | --------------- |
-| `FX`     | the full chain                   | all enabled     |
-| `Clean`  | the shot without visual effects  | `EffectRole::Framing` only |
-| `Freeze` | the last good PROGRAM frame      | keeps running   |
-| `Black`  | opaque black                     | keeps running   |
+| Mode     | PROGRAM shows                              | Pipeline behind it |
+| -------- | ------------------------------------------ | ------------------ |
+| `FX`     | effects, framing and overlays              | all enabled        |
+| `Clean`  | framing without visual effects or overlays | keeps clocks warm  |
+| `Freeze` | the last good PROGRAM frame                | keeps running      |
+| `Black`  | opaque black                               | keeps running      |
 
 Every one of them is reached by a dissolve, never a cut — see *Transitions*
 below.
 
 `Clean` is not a bypass of everything. `EffectChain::process(ctx, in, mix)` at
 `mix == 0` skips `EffectRole::Visual` and keeps `EffectRole::Framing`, so Auto
-Frame still crops and the 9:16 output window is still there: the operator
-removes the look without losing the shot or changing what the LED panel is fed.
-Every node's automation clock still advances in `Clean`, `Freeze` and `Black` —
-the chain is being kept warm behind a safe picture, not paused.
+Frame still crops and the 9:16 output window is still there. The same
+`effectMix` multiplies overlay opacity, so Clean also removes the managed
+graphics: the operator removes the complete look without losing the shot.
+Effect automations and overlay playback still advance in `Clean`, `Freeze` and
+`Black` — the pipeline is being kept warm behind a safe picture, not paused.
 
 ### Transitions
 
@@ -277,13 +296,14 @@ and only turning the direction of travel round.
 The four buttons are two different transitions, because they are two different
 kinds of change:
 
-**FX ↔ Clean changes the picture, so it mixes inside the chain.**
+**FX ↔ Clean changes the picture, so it mixes before PROGRAM.**
 `ProgramTransition` ramps and the chain is handed the result as `effectMix`.
 Between the ends every enabled `EffectRole::Visual` node renders into
 `chain.wet` and the `crossfade` shader lays it back over the picture that node
 received, so the look dissolves out instead of being cut out.
 `EffectRole::Framing` is never mixed: the shot must not drift or half-crop
-while the look fades.
+while the look fades. `OverlayCompositor` receives the same amount and applies
+it to every layer, so graphics leave with the look rather than cutting.
 
 **Freeze and Black replace the picture, so they mix at the output.**
 `ProgramOutput` dissolves between whole images, and the sources are live rather
@@ -320,10 +340,10 @@ Rules that fall out of it:
 Start-up snaps: `--program clean` is already Clean on frame one, because there
 is no previous picture to dissolve from.
 
-`Freeze` and `Black` do not stop the pipeline. Capture, tracking and the chain
-keep preparing the next shot while a stable image is on the wall, and the
-output surface keeps presenting every frame: the LED panel never sees a dead
-signal, only a still one.
+`Freeze` and `Black` do not stop the pipeline. Capture, tracking, the chain,
+overlay playback/decode and composition keep preparing the next shot while a
+stable image is on the wall, and the output surface keeps presenting every
+frame: the LED panel never sees a dead signal, only a still one.
 
 ### Input loss
 
@@ -395,22 +415,22 @@ are then one more click away. Session-only, like the section folds.
 ├─ PROGRAM (FX/Clean/Freeze/Black) ─┬─ PREVIEW: [SOURCE|FX] | PROGRAM ─┤
 ├─ SOURCE (input / tracking)        │  crop marks; subject tungsten     │
 ├─ OUTPUT (display / webcam)        ├───────────────────────────────────┤
-├─ EFFECTS (add / remove / ↑↓)      │  INSPECTOR: stats, or the         │
-└───────────────────────────────────┴── selected effect's parameters ───┘
+├─ PRESETS (factory / user looks)   │                                   │
+├─ OVERLAYS (library / 4 layers)    │  INSPECTOR: stats, effect, layer  │
+├─ EFFECTS (add / remove / ↑↓)      │             or overlay library    │
+└───────────────────────────────────┴───────────────────────────────────┘
 ```
 
 Header 48 px. PROGRAM is always its caption plus the mode row — what goes to
-air stays one reach away while the column is open. SOURCE is sized from its
-own content but capped so EFFECTS always keeps 180 px - its rack label, the
-Add effect button and a few chain rows. That reserve was 240 while EFFECTS
-also carried the PARAMETERS section; the section moved to the inspector, so
-the space went back to SOURCE, which is what pays for the rules between its
-parameters. The remaining height is EFFECTS and PREVIEW.
+air stays one reach away while the column is open. SOURCE and OUTPUT are sized
+from their content; PRESETS and OVERLAYS occupy bounded collapsible sections,
+and EFFECTS retains a usable rack area. The remaining body is the split preview
+plus the wide inspector.
 
 ### The inspector
 
-The wide panel under the preview has two faces, and `ui::inspectedEffect()`
-(`src/ui/Inspector.h`) decides which:
+The wide panel under the preview has four faces, selected through
+`src/ui/Inspector.h`:
 
 - **nothing inspected** - the stats strip, 204 px: input health, render rate,
   gpu milliseconds, output state and the frame-time plot. This is the default;
@@ -418,11 +438,15 @@ The wide panel under the preview has two faces, and `ui::inspectedEffect()`
 - **an effect inspected** - that effect's `ParameterSet`, dealt across up to
   four columns, sized from the tallest column and capped at 45% of the body so
   the preview it is being judged on stays legible.
+- **an overlay layer inspected** - opacity, stack position, current-format
+  state and sequence transport.
+- **the overlay library inspected** - asset variants, import/replace/remove
+  controls and adding an asset to the stack.
 
 Selecting an effect and inspecting it are one act: clicking a row in EFFECTS
 opens it here, clicking it again closes it, and so does the panel's own close
-control. Folding EFFECTS away, or opening SOURCE or OUTPUT, closes it too -
-the sidebar section the operator moves to is the one that owns the screen.
+control. Folding its owning section away, or opening SOURCE, OUTPUT or PRESETS,
+closes it too - the sidebar section the operator moves to owns the screen.
 `UiLayer::syncInspectorToSections()` compares the fold state against the
 previous frame's to see those edges; `ui::validateInspector()` runs first,
 before the layout pass reads the pointer, because the chain can lose an effect
@@ -478,7 +502,8 @@ Subject Size            0.850   ~     <- name, value control, loop toggle
 waveform, range, cycle duration and phase offset, with pause, restart and a
 curve preview, generated from `ParameterSet` and independent for repeated
 instances of the same effect. Source controls remain manual. The effect graph
-remains linear and loop settings are not saved between sessions.
+remains linear; loop settings are saved only as part of an explicit scene
+preset.
 
 ImGui backends: `UiLayerMetal.mm` (OSX + Metal) or `UiLayerD3D11.cpp`
 (Win32 + DX11). Win32 input is hooked before the window so ImGui sees it
@@ -498,6 +523,9 @@ App
  ├── unique_ptr<VirtualCameraOutput> null until PROGRAM is sent to a webcam
  ├── unique_ptr<Tracker>             null where the platform has no detector
  ├── EffectChain                     value
+ ├── OverlayLibrary                  managed Application Support assets
+ ├── OverlaySystem                   playback, decoder and compositor
+ ├── unique_ptr<OverlaySourcePicker> native picker; import future is exceptional
  ├── ProgramOutput                   value, plus ProgramTransition
  ├── SourceHealth                    value
  ├── FrameTiming                     value
@@ -511,7 +539,7 @@ stopping output stays alive until it has released the device.
 Borrowed for the duration of a frame only:
 
 - `EffectContext` — shaders, fullscreen pass, target pool, time, tracking, framing
-- `UiFrameState` — chain, source, timing, source and program textures, vsync flag
+- `UiFrameState` — chain, source, overlays, timing, source/program textures, vsync flag
 
 `lastOutput_` is a raw `GpuTexture*` into a pool-owned target. It is valid
 until the next `process()` or shutdown.
@@ -551,8 +579,14 @@ src/effects/PassthroughEffect.cpp RgbSplitEffect.cpp
 src/effects/PixelateEffect.cpp FmRasterEffect.cpp SubpixelEffect.cpp
 src/effects/ShutterEffect.cpp FrameDelayEffect.cpp VhsEffect.cpp
 src/effects/CrtEffect.cpp MirrorEffect.cpp AutoFrameEffect.cpp
+src/overlays/overlay_model.h/.cpp overlay_playback.h/.cpp
+src/overlays/overlay_library.h/.cpp overlay_platform.h
+src/overlays/overlay_compositor.h/.cpp overlay_system.h/.cpp
+src/overlays/mac/overlay_platform_mac.mm
+src/overlays/win32/overlay_platform_win.cpp
+src/presets/scene_preset.h/.cpp preset_store.h/.cpp boot_state.h/.cpp
 src/ui/UiLayer.h/.cpp Theme.h/.cpp Fonts.h/.cpp Panels.h
-src/ui/SourcePanel.cpp OutputPanel.cpp
+src/ui/SourcePanel.cpp OutputPanel.cpp PresetsPanel.cpp OverlaysPanel.cpp
 src/ui/EffectsPanel.cpp PreviewPanel.cpp StatsPanel.cpp ParameterWidgets.cpp
 src/ui/Inspector.h InspectorPanel.cpp ProgramPanel.cpp
 src/ui/backend/UiLayerMetal.mm UiLayerD3D11.cpp
@@ -563,16 +597,19 @@ tests/source_mapping_test.cpp tests/source_health_test.cpp
 tests/program_output_test.cpp
 tests/display_routing_test.cpp tests/app_output_lifecycle_test.cpp
 tests/display_changes_mac_test.mm
+tests/scene_preset_test.cpp tests/overlay_playback_test.cpp
+tests/overlay_compositor_test.cpp tests/overlay_library_test.cpp
 
 shaders/hlsl/   common.hlsli fullscreen.hlsl test_pattern.hlsl
                 passthrough.hlsl rgb_split.hlsl pixelate.hlsl fm_raster.hlsl
                 subpixel.hlsl shutter.hlsl frame_delay.hlsl vhs.hlsl crt.hlsl
                 mirror.hlsl auto_frame.hlsl crossfade.hlsl source_blit.hlsl
+                overlay_composite.hlsl
 shaders/metal/  common.metal test_pattern.metal
                 passthrough.metal rgb_split.metal pixelate.metal fm_raster.metal
                 subpixel.metal shutter.metal frame_delay.metal vhs.metal
                 crt.metal mirror.metal auto_frame.metal crossfade.metal
-                source_blit.metal
+                source_blit.metal overlay_composite.metal
 ```
 
 A more detailed tree is in `memory-bank/file-map.md`.

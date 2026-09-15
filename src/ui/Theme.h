@@ -62,6 +62,9 @@ enum class PanelSection : int
     Source  = 0,
     Output  = 1,
     Effects = 2,
+    Presets = 3,
+    Overlays = 4,
+    Count,
 };
 
 bool panelOpen(PanelSection section);
@@ -75,9 +78,15 @@ void setSidebarCollapsed(bool collapsed);
 // scales the 392 px column, so the two never disagree about the leftover.
 float sidebarRailWidth();
 
-// Four stacked titles that reopen the column. PROGRAM has no fold, so it
-// only expands; SOURCE / OUTPUT / EFFECTS also open their section.
+// Stacked titles that reopen the column. PROGRAM has no fold, so it only
+// expands; every other title also opens its own section. The rail has no
+// visible scrollbar, but remains wheel/trackpad-scrollable at short heights.
 void drawSidebarRail(bool outputSending);
+
+// Window height occupied by a folded panel. Shared by the sidebar allocator
+// and individual panels so a new section cannot create negative remainder or
+// overlap the section below it.
+float foldedPanelHeight();
 
 // Rack-label header: accent bar, uppercase title, optional right-aligned meta.
 // Click toggles the section. Returns true when the body should be drawn.
@@ -117,6 +126,8 @@ enum class Glyph
 {
     Up,
     Down,
+    Left,
+    Right,
     Close,
     Loop,
     Collapse,

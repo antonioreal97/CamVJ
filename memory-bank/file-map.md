@@ -15,6 +15,7 @@ CamVJ/
 │   ├── ATEM_INTEGRATION.md      # design M4, não código
 │   ├── BUILD.md
 │   ├── EFFECT_SYSTEM.md
+│   ├── OVERLAYS.md               # biblioteca/import/playback/compositor FX-026
 │   ├── TRACKING.md              # tracking + framing (macOS ok, Windows sem detector)
 │   ├── PRODUCT.md
 │   ├── ROADMAP.md
@@ -38,6 +39,7 @@ CamVJ/
 │   │   ├── crt.hlsl             # scanlines + aperture grille, sem bloom
 │   │   ├── mirror.hlsl
 │   │   ├── crossfade.hlsl       # dissolve (cadeia e saída), wet t0 / dry t1
+│   │   ├── overlay_composite.hlsl # alpha premultiplicado dos overlays
 │   │   └── auto_frame.hlsl      # recorte do enquadramento
 │   └── metal/
 │       ├── common.metal         # prepended em todo fragment
@@ -53,11 +55,12 @@ CamVJ/
 │       ├── crt.metal
 │       ├── mirror.metal
 │       ├── crossfade.metal      # dissolve (cadeia e saída), wet t0 / dry t1
+│       ├── overlay_composite.metal # alpha premultiplicado dos overlays
 │       └── auto_frame.metal
 ├── src/
 │   ├── main.cpp
 │   ├── app/          App.h App.cpp
-│   ├── core/         Log.h Log.cpp Version.h   # versão vinda do CMake
+│   ├── core/         Log.h Log.cpp Version.h Paths.h/.cpp
 │   ├── decklink/     decklink_discovery.h
 │   │                 decklink_discovery_win.cpp decklink_discovery_stub.cpp
 │   │                 decklink_capture.h         # seam FX-011 (capture-only)
@@ -87,12 +90,18 @@ CamVJ/
 │   │                 FrameDelayEffect.cpp
 │   │                 VhsEffect.cpp CrtEffect.cpp MirrorEffect.cpp
 │   │                 AutoFrameEffect.cpp        # usa tracking/framing.h
+│   ├── overlays/     overlay_model.* overlay_playback.* overlay_library.*
+│   │                 overlay_compositor.* overlay_system.* overlay_platform.h
+│   │   ├── mac/      overlay_platform_mac.mm    # picker + ImageIO/CoreGraphics
+│   │   └── win32/    overlay_platform_win.cpp   # picker Shell + WIC
+│   ├── presets/      scene_preset.* preset_store.* boot_state.*
 │   ├── tracking/     Tracker.h TrackingSnapshot.h framing.h/.cpp
 │   │                 source_mapping.h/.cpp      # canvas↔captura + Pick
 │   │                 tracker_stub.cpp           # Windows: sem detector
 │   │   └── mac/      VisionTracker.mm           # Vision + object lock, thread própria
 │   └── ui/           UiLayer.* Theme.* Panels.h SourcePanel.cpp OutputPanel.cpp
-│                     ProgramPanel.cpp EffectsPanel.cpp PreviewPanel.cpp
+│                     ProgramPanel.cpp PresetsPanel.cpp OverlaysPanel.cpp
+│                     EffectsPanel.cpp PreviewPanel.cpp
 │                     StatsPanel.cpp
 │                     Inspector.h InspectorPanel.cpp  # stats OU parâmetros
 │                     ParameterWidgets.cpp
@@ -104,6 +113,10 @@ CamVJ/
 │                     source_health_test.cpp         # sinal, fps, repeats
 │                     program_output_test.cpp        # modos de PROGRAM + perda
 │                                                    # + os dois dissolves
+│                     scene_preset_test.cpp           # JSON v1/v2 + recall
+│                     overlay_playback_test.cpp       # clocks e fades
+│                     overlay_compositor_test.cpp     # ordem/alpha/fallback
+│                     overlay_library_test.cpp        # import/replace/cancel/trash
 └── assets/files/    identidade CamVJ (SVG + IDENTIDADE.md)
 ```
 

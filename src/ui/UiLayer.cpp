@@ -1,6 +1,7 @@
 #include "ui/UiLayer.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 
@@ -58,15 +59,6 @@ float parameterBlockHeight(const ParameterSet& parameters)
     return height;
 }
 
-// Header row plus the gap drawPanelHeader leaves under the label. Used when
-// SOURCE / OUTPUT are folded so EFFECTS inherits the freed space.
-float collapsedPanelHeight()
-{
-    const float pad    = theme::scaled(4.0f);
-    const float header = ImGui::GetTextLineHeight() + 2.0f * pad;
-    return ImGui::GetStyle().WindowPadding.y * 2.0f + header + theme::scaled(8.0f);
-}
-
 // One action row: the button plus the spacing that follows it.
 float actionRow()
 {
@@ -77,7 +69,7 @@ float sourcePanelHeight(const UiFrameState& state)
 {
     if (!theme::panelOpen(theme::PanelSection::Source))
     {
-        return collapsedPanelHeight();
+        return theme::foldedPanelHeight();
     }
 
     const float frame = ImGui::GetFrameHeightWithSpacing();
@@ -86,7 +78,7 @@ float sourcePanelHeight(const UiFrameState& state)
     // Header, then one input row — the combo and its rescan share it — then
     // source and tracking status, which wrap to two lines often enough to
     // budget for it.
-    float height = collapsedPanelHeight() + frame + text * 4.0f;
+    float height = theme::foldedPanelHeight() + frame + text * 4.0f;
     if (state.trackingAvailable)
     {
         // Pick UI: the Pick subject button, or a cancel row plus a short
@@ -109,7 +101,7 @@ float programPanelHeight()
 
 float outputPanelHeight(const UiFrameState& state)
 {
-    const float folded = collapsedPanelHeight();
+    const float folded = theme::foldedPanelHeight();
     if (!theme::panelOpen(theme::PanelSection::Output))
     {
         return folded;
@@ -127,6 +119,72 @@ float outputPanelHeight(const UiFrameState& state)
     // send shows counters, a failed start shows why it failed.
     height += text + actionRow() + text * 2.0f;
     return height;
+}
+
+float presetsPanelHeight()
+{
+    if (!theme::panelOpen(theme::PanelSection::Presets))
+    {
+        return theme::foldedPanelHeight();
+    }
+
+    const float text = ImGui::GetTextLineHeightWithSpacing();
+    // Header, FACTORY label + two rows of three, USER label + one empty line,
+    // SAVE label + name field + save button.
+    return theme::foldedPanelHeight() + text * 3.0f + actionRow() * 4.0f +
+           ImGui::GetFrameHeightWithSpacing() + theme::scaled(12.0f);
+}
+
+struct SidebarHeights
+{
+    float source   = 0.0f;
+    float output   = 0.0f;
+    float presets  = 0.0f;
+    float overlays = 0.0f;
+    float effects  = 0.0f;
+};
+
+SidebarHeights allocateSidebarHeights(const UiFrameState& state, float bodyHeight,
+                                      float programHeight)
+{
+    constexpr std::size_t kEffects = 4;
+    const float folded = theme::foldedPanelHeight();
+    const std::array<float, 5> wanted = {
+        sourcePanelHeight(state),
+        outputPanelHeight(state),
+        presetsPanelHeight(),
+        overlaysPanelHeight(),
+        theme::panelOpen(theme::PanelSection::Effects) ? theme::scaled(180.0f) : folded,
+    };
+
+    std::array<float, 5> heights{};
+    heights.fill(folded);
+
+    const float available = std::max(0.0f, bodyHeight - programHeight);
+    float wantedTotal = 0.0f;
+    for (float height : wanted) wantedTotal += height;
+    const float minimumTotal = folded * static_cast<float>(heights.size());
+
+    if (available >= wantedTotal)
+    {
+        heights = wanted;
+        // EFFECTS remains the elastic tail of the rack at comfortable window
+        // sizes, preserving the long chain view operators already have.
+        heights[kEffects] += available - wantedTotal;
+    }
+    else if (available > minimumTotal && wantedTotal > minimumTotal)
+    {
+        const float share = (available - minimumTotal) / (wantedTotal - minimumTotal);
+        for (std::size_t i = 0; i < heights.size(); ++i)
+        {
+            heights[i] = folded + (wanted[i] - folded) * share;
+        }
+    }
+    // If even five folded headers do not fit (for example 960x600 at 200%
+    // Windows DPI), keep their real hit height. The containing sidebar scrolls
+    // as one rack, so every section remains reachable without overlap.
+
+    return {heights[0], heights[1], heights[2], heights[3], heights[4]};
 }
 
 constexpr ImGuiWindowFlags kPanelFlags = ImGuiWindowFlags_NoTitleBar |
@@ -254,24 +312,38 @@ void drawHeader(UiFrameState& state, ImVec2 origin, ImVec2 size)
 
 void UiLayer::syncInspectorToSections()
 {
-    const bool source  = theme::panelOpen(theme::PanelSection::Source);
-    const bool output  = theme::panelOpen(theme::PanelSection::Output);
-    const bool effects = theme::panelOpen(theme::PanelSection::Effects);
+    const bool source   = theme::panelOpen(theme::PanelSection::Source);
+    const bool output   = theme::panelOpen(theme::PanelSection::Output);
+    const bool presets  = theme::panelOpen(theme::PanelSection::Presets);
+    const bool overlays = theme::panelOpen(theme::PanelSection::Overlays);
+    const bool effects  = theme::panelOpen(theme::PanelSection::Effects);
 
-    // Opening another section, or folding EFFECTS away, is the operator saying
-    // they are done with the effect: the panel under the preview goes back to
-    // the numbers, which is what it shows by default.
-    const bool leftEffects  = effectsOpen_ && !effects;
-    const bool tookOverSource = !sourceOpen_ && source;
-    const bool tookOverOutput = !outputOpen_ && output;
-    if (leftEffects || tookOverSource || tookOverOutput)
+    const ui::InspectorKind inspector = ui::inspectorKind();
+    const bool overlayInspector = inspector == ui::InspectorKind::OverlayLayer ||
+                                  inspector == ui::InspectorKind::OverlayLibrary;
+    const bool effectInspector = inspector == ui::InspectorKind::Effect;
+
+    // Folding the owner closes its inspector. Opening any routing/look panel
+    // also returns to stats; EFFECTS and OVERLAYS take ownership from one
+    // another when their rack header is reopened.
+    const bool leftEffects     = effectsOpen_ && !effects && effectInspector;
+    const bool leftOverlays    = overlaysOpen_ && !overlays && overlayInspector;
+    const bool tookOverSource  = !sourceOpen_ && source;
+    const bool tookOverOutput  = !outputOpen_ && output;
+    const bool tookOverPresets = !presetsOpen_ && presets;
+    const bool tookOverEffects = !effectsOpen_ && effects && overlayInspector;
+    const bool tookOverOverlays = !overlaysOpen_ && overlays && effectInspector;
+    if (leftEffects || leftOverlays || tookOverSource || tookOverOutput ||
+        tookOverPresets || tookOverEffects || tookOverOverlays)
     {
         ui::closeInspector();
     }
 
-    sourceOpen_  = source;
-    outputOpen_  = output;
-    effectsOpen_ = effects;
+    sourceOpen_   = source;
+    outputOpen_   = output;
+    presetsOpen_  = presets;
+    overlaysOpen_ = overlays;
+    effectsOpen_  = effects;
 }
 
 void UiLayer::configure(const ui::DisplayScale& scale)
@@ -307,16 +379,16 @@ void UiLayer::draw(UiFrameState& state)
     const ImVec2         origin   = viewport->Pos;
     const ImVec2         size     = viewport->Size;
 
-    // Before anything reads the inspected effect, including the layout pass
-    // below: the chain can lose an effect between frames.
-    ui::validateInspector(state.chain);
+    // Before the layout reads the current face: a chain can lose an effect and
+    // an asynchronous library commit can replace the overlay vectors between
+    // frames. Both selections are revalidated against stable ownership here.
+    ui::validateInspector(state.chain, state.overlays);
     syncInspectorToSections();
 
     const float headerHeight = theme::scaled(kHeaderHeight);
     const bool  rail         = theme::sidebarCollapsed();
     const float leftWidth    = theme::scaled(rail ? theme::sidebarRailWidth() : kLeftWidth);
     const float statsHeight  = theme::scaled(kStatsHeight);
-    const float outputHeight  = rail ? 0.0f : std::round(outputPanelHeight(state));
     const float programHeight = rail ? 0.0f : std::round(programPanelHeight());
 
     const float rightWidth = size.x - leftWidth;
@@ -327,19 +399,10 @@ void UiLayer::draw(UiFrameState& state)
     const float inspectorHeight =
         std::round(ui::inspectorHeight(rightWidth, statsHeight,
                                        std::max(statsHeight, bodyHeight * kInspectorBodyShare)));
-    // Long source diagnostics and person lists scroll in their own panel;
-    // they cannot push routing or the effect list off-screen.
-    // What EFFECTS keeps no matter how much SOURCE would like: its rack label,
-    // the Add effect button and a few chain rows. It used to be 240 because
-    // EFFECTS also carried the PARAMETERS section; that moved to the inspector
-    // under the preview, so the reserve came down and SOURCE got the space
-    // back - which is what pays for the rules between its parameters.
-    const float sourceLimit = std::max(collapsedPanelHeight(),
-                                       bodyHeight - programHeight - outputHeight -
-                                           theme::scaled(180.0f));
-    const float sourceHeight = std::round(std::min(sourcePanelHeight(state), sourceLimit));
-    const float previewH   = bodyHeight - inspectorHeight;
-    const float effectsH   = bodyHeight - programHeight - sourceHeight - outputHeight;
+    const SidebarHeights sidebar = rail
+        ? SidebarHeights{}
+        : allocateSidebarHeights(state, bodyHeight, programHeight);
+    const float previewH = std::max(0.0f, bodyHeight - inspectorHeight);
 
     ImGui::SetNextWindowPos(origin);
     ImGui::SetNextWindowSize(ImVec2(size.x, headerHeight));
@@ -364,40 +427,49 @@ void UiLayer::draw(UiFrameState& state)
     }
     else
     {
+        // One scrollable rack contains individually scrollable sections. At
+        // normal sizes the allocator deals the exact body height and the outer
+        // rack never moves. At very short/high-DPI sizes it carries the real
+        // folded hit height for every section and becomes the safe fallback.
         ImGui::SetNextWindowPos(ImVec2(origin.x, origin.y + headerHeight));
-        ImGui::SetNextWindowSize(ImVec2(leftWidth, programHeight));
-        if (ImGui::Begin("##program", nullptr, kPanelFlags | ImGuiWindowFlags_NoScrollbar))
+        ImGui::SetNextWindowSize(ImVec2(leftWidth, bodyHeight));
+        const ImVec2 sectionPadding = ImGui::GetStyle().WindowPadding;
+        const ImVec2 sectionSpacing = ImGui::GetStyle().ItemSpacing;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
+        if (ImGui::Begin("##sidebar", nullptr, kPanelFlags))
         {
-            drawProgramPanel(state);
-        }
-        ImGui::End();
+            const ImVec2 min = ImGui::GetWindowPos();
+            const ImVec2 extent = ImGui::GetWindowSize();
+            ImGui::GetWindowDrawList()->AddLine(
+                ImVec2(min.x + extent.x - 1.0f, min.y),
+                ImVec2(min.x + extent.x - 1.0f, min.y + extent.y), theme::kLineU32);
 
-        ImGui::SetNextWindowPos(ImVec2(origin.x, origin.y + headerHeight + programHeight));
-        ImGui::SetNextWindowSize(ImVec2(leftWidth, sourceHeight));
-        if (ImGui::Begin("##source", nullptr, kPanelFlags))
-        {
-            drawSourcePanel(state);
-        }
-        ImGui::End();
+            auto drawSection = [&](const char* id, float height, bool fixed,
+                                   auto&& drawContents) {
+                const ImGuiWindowFlags flags = fixed ? ImGuiWindowFlags_NoScrollbar
+                                                     : ImGuiWindowFlags_None;
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, sectionPadding);
+                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, sectionSpacing);
+                if (ImGui::BeginChild(id, ImVec2(0.0f, height),
+                                      ImGuiChildFlags_AlwaysUseWindowPadding, flags))
+                {
+                    drawContents();
+                }
+                ImGui::EndChild();
+                ImGui::PopStyleVar(2);
+            };
 
-        ImGui::SetNextWindowPos(
-            ImVec2(origin.x, origin.y + headerHeight + programHeight + sourceHeight));
-        ImGui::SetNextWindowSize(ImVec2(leftWidth, outputHeight));
-        if (ImGui::Begin("##output", nullptr, kPanelFlags))
-        {
-            drawOutputPanel(state);
+            drawSection("##program", programHeight, true, [&] { drawProgramPanel(state); });
+            drawSection("##source", sidebar.source, false, [&] { drawSourcePanel(state); });
+            drawSection("##output", sidebar.output, false, [&] { drawOutputPanel(state); });
+            drawSection("##presets", sidebar.presets, false, [&] { drawPresetsPanel(state); });
+            drawSection("##overlays", sidebar.overlays, false,
+                        [&] { drawOverlaysPanel(state); });
+            drawSection("##effects", sidebar.effects, false, [&] { drawEffectsPanel(state); });
         }
         ImGui::End();
-
-        ImGui::SetNextWindowPos(ImVec2(origin.x,
-                                       origin.y + headerHeight + programHeight + sourceHeight +
-                                           outputHeight));
-        ImGui::SetNextWindowSize(ImVec2(leftWidth, effectsH));
-        if (ImGui::Begin("##effects", nullptr, kPanelFlags))
-        {
-            drawEffectsPanel(state);
-        }
-        ImGui::End();
+        ImGui::PopStyleVar(2);
     }
 
     ImGui::SetNextWindowPos(ImVec2(origin.x + leftWidth, origin.y + headerHeight));

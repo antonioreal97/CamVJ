@@ -16,8 +16,9 @@ reaches the wall without a DeckLink output — is not solved here.
 
 This is not on the milestone ladder in [ROADMAP.md](ROADMAP.md). It was
 requested on 2026-09-08 as a bounded extension, on the same terms as parameter
-loops: it uses the existing effect abstraction, adds no graph, no preset
-storage and no external control source, and does not change what M1 owes.
+loops: it uses the existing effect abstraction, adds no graph or external
+control source, and does not change what M1 owes. Scene presets added later can
+store its parameters and portrait state.
 
 ---
 
@@ -167,6 +168,13 @@ centre the crop sits left of them, and the crop still never leaves the source
 frame - so a large offset near an edge is absorbed by that clamp rather than
 producing black bars. It is the horizontal counterpart of Headroom, which is
 why there is no Offset Y: the two would fight over the same axis.
+
+While a framing node's parameters are open and Follow Subject is on, a
+**COMPOSE** pad (and the arrow keys) move the crop by 0.02 per step in the
+direction of the arrow — up/down via Headroom, left/right via Offset X. The
+parameter signs are the inverse of the arrow because those values place the
+subject, not the frame (see above). With Follow off the pad is disabled;
+Manual X / Y remain the pan controls.
 
 ### The alignment grid
 

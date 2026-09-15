@@ -1,6 +1,7 @@
 # Building CamVJ
 
-**Status: M0 engine implemented; M1 discovery awaiting Windows validation.**
+**Status: M0 engine implemented; M1 discovery awaiting Windows validation;
+scene presets and FX-026 overlays build on both backend seams.**
 CamVJ builds on macOS (Metal) and Windows (Direct3D 11). CMake picks the GPU
 backend from the host. DeckLink discovery is a separate, opt-in Windows build
 feature.
@@ -8,8 +9,9 @@ feature.
 The only required external dependency is Dear ImGui. DeckLink discovery uses
 the external Blackmagic DeckLink SDK when enabled (see below). Logging is a small `printf`
 wrapper in `src/core/Log.cpp` — spdlog is planned, not linked. Catch2 is not
-wired; the five portable tests are standalone C++ registered with CTest, with
-no additional dependency. There is no JSON config file.
+wired; the ten portable tests are standalone C++ registered with CTest, with
+no additional dependency. There is no general app JSON config; presets, venue
+boot and overlay manifests use small scoped hand-written schemas.
 
 ---
 
@@ -118,7 +120,8 @@ a Windows workstation before FX-010 is marked done. On that workstation:
 ```
 
 No window, no UI, no display required — it works over SSH and in CI. It builds
-the real device, compiles every shader, runs the source and the effect chain
+the real device, compiles every shader, runs the source, effect chain, overlay
+compositor and PROGRAM gate
 for 300 frames, prints the timings and writes the final frame as a binary PPM.
 
 Every change must at least pass this before it is called done:
@@ -129,7 +132,7 @@ Every change must at least pass this before it is called done:
 
 ### Portable checks (CTest)
 
-`BUILD_TESTING=ON` (the default) builds five standalone test executables from
+`BUILD_TESTING=ON` (the default) builds ten standalone test executables from
 `tests/` and registers them in CTest:
 
 | Test | Source | What it covers |
@@ -137,8 +140,13 @@ Every change must at least pass this before it is called done:
 | `parameter_automation` | `parameter_automation_test.cpp` | loop evaluation and parameter semantics |
 | `framing` | `framing_test.cpp` | the framing controller (dead zone, smoothing, hold/return, offsets) |
 | `source_mapping` | `source_mapping_test.cpp` | source pixels to canvas coordinates |
+| `display_routing` | `display_routing_test.cpp` | stable display selection and route-loss policy |
 | `source_health` | `source_health_test.cpp` | input-loss and reconnect policy |
 | `program_output` | `program_output_test.cpp` | the PROGRAM state machine and the FX/Clean dissolve |
+| `scene_preset` | `scene_preset_test.cpp` | scene JSON, recall and v1→v2 migration |
+| `overlay_playback` | `overlay_playback_test.cpp` | layer fades, loop and one-shot clocks |
+| `overlay_compositor` | `overlay_compositor_test.cpp` | order, opacity, format and shader-failure fallback |
+| `overlay_library` | `overlay_library_test.cpp` | managed import, variant replacement, cancellation and trash removal |
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
@@ -149,10 +157,12 @@ ctest --test-dir build --output-on-failure
 For a Visual Studio build, build with `--config Release` and use
 `ctest --test-dir build -C Release --output-on-failure`.
 The tests need no display, no GPU and no Catch2 installation. They check
-scalar contracts only; they do not replace the 200-frame headless gate.
+portable contracts with fake GPU/image seams and temporary managed-library
+files; they do not replace the 200-frame headless gate.
 
-Loop controls are configured in the effect UI and last for the current
-session; there are no automation CLI flags and no preset storage.
+Loop controls are configured in the effect UI. There are no automation CLI
+flags; an explicit scene preset saves their configuration, while unsaved edits
+last only for the current session.
 
 ### CLI
 

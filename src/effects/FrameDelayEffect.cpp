@@ -49,10 +49,8 @@ public:
     {
         parameters_.add(Parameter::makeInt("copies", "Copies", 8, 1, 24));
         parameters_.add(Parameter::makeInt("spacing", "Frames Apart", 3, 1, 30));
-        // Blend is an int slider for the same reason Mirror's mode is: the
-        // parameter system grows enumerations in M3, and an effect must not
-        // grow bespoke UI to get one.
-        parameters_.add(Parameter::makeInt("blend", "Blend (Lighten/Screen/Darken)", 0, 0, 2));
+        parameters_.add(Parameter::makeChoice(
+            "blend", "Blend", 0, {"Lighten", "Screen", "Darken"}));
         parameters_.add(Parameter::makeFloat("key", "Key", 0.10f, 0.0f, 0.80f));
         parameters_.add(Parameter::makeBool("freeze", "Freeze Trail", false));
         parameters_.add(Parameter::makeFloat("mix", "Mix", 1.0f, 0.0f, 1.0f));

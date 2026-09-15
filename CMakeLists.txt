@@ -96,6 +96,8 @@ set(ATEMFX_SOURCES
 
     src/core/Log.cpp
     src/core/Log.h
+    src/core/Paths.cpp
+    src/core/Paths.h
     src/core/Version.h
 
     src/platform/Display.h
@@ -153,6 +155,25 @@ set(ATEMFX_SOURCES
     src/effects/ShaderEffect.cpp
     src/effects/ShaderEffect.h
 
+    src/presets/boot_state.cpp
+    src/presets/boot_state.h
+    src/presets/preset_store.cpp
+    src/presets/preset_store.h
+    src/presets/scene_preset.cpp
+    src/presets/scene_preset.h
+
+    src/overlays/overlay_compositor.cpp
+    src/overlays/overlay_compositor.h
+    src/overlays/overlay_library.cpp
+    src/overlays/overlay_library.h
+    src/overlays/overlay_model.cpp
+    src/overlays/overlay_model.h
+    src/overlays/overlay_platform.h
+    src/overlays/overlay_playback.cpp
+    src/overlays/overlay_playback.h
+    src/overlays/overlay_system.cpp
+    src/overlays/overlay_system.h
+
     src/tracking/framing.cpp
     src/tracking/framing.h
     src/tracking/source_mapping.cpp
@@ -165,9 +186,11 @@ set(ATEMFX_SOURCES
     src/ui/Fonts.h
     src/ui/Inspector.h
     src/ui/InspectorPanel.cpp
+    src/ui/OverlaysPanel.cpp
     src/ui/OutputPanel.cpp
     src/ui/Panels.h
     src/ui/ParameterWidgets.cpp
+    src/ui/PresetsPanel.cpp
     src/ui/PreviewPanel.cpp
     src/ui/ProgramPanel.cpp
     src/ui/SourcePanel.cpp
@@ -186,6 +209,7 @@ if(ATEMFX_BACKEND STREQUAL "d3d11")
         src/gpu/d3d11/D3D11Device.h
         src/ui/backend/UiLayerD3D11.cpp
         src/video/win32/CameraCaptureMF.cpp
+        src/overlays/win32/overlay_platform_win.cpp
         src/video/virtual_camera_stub.cpp
         src/tracking/tracker_stub.cpp)
 else()
@@ -196,6 +220,7 @@ else()
         src/gpu/metal/MetalDevice.h
         src/ui/backend/UiLayerMetal.mm
         src/video/mac/CameraCaptureAVF.mm
+        src/overlays/mac/overlay_platform_mac.mm
         src/video/mac/virtual_camera_mac.mm
         src/tracking/mac/VisionTracker.mm)
 endif()
@@ -224,7 +249,8 @@ if(ATEMFX_BACKEND STREQUAL "d3d11")
     # mf*: Media Foundation, for USB and built-in camera capture.
     target_link_libraries(atem_fx PRIVATE
         d3d11 dxgi d3dcompiler dxguid
-        mfplat mf mfreadwrite mfuuid)
+        mfplat mf mfreadwrite mfuuid
+        windowscodecs shell32 ole32)
     target_link_libraries(imgui PUBLIC d3d11 dxgi dwmapi)
 
     foreach(target atem_fx imgui)
@@ -249,6 +275,7 @@ else()
         src/gpu/metal/MetalBackend.mm
         src/ui/backend/UiLayerMetal.mm
         src/video/mac/CameraCaptureAVF.mm
+        src/overlays/mac/overlay_platform_mac.mm
         src/video/mac/virtual_camera_mac.mm
         src/tracking/mac/VisionTracker.mm
         "${imgui_SOURCE_DIR}/backends/imgui_impl_osx.mm"
@@ -262,6 +289,8 @@ else()
     find_library(AVFOUNDATION_FRAMEWORK AVFoundation REQUIRED)
     find_library(COREMEDIA_FRAMEWORK CoreMedia REQUIRED)
     find_library(COREVIDEO_FRAMEWORK CoreVideo REQUIRED)
+    find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
+    find_library(IMAGEIO_FRAMEWORK ImageIO REQUIRED)
     # Subject detection. A system framework, so it costs no third-party
     # dependency; docs/TRACKING.md covers why Windows has no equivalent yet.
     find_library(VISION_FRAMEWORK Vision REQUIRED)
@@ -280,6 +309,8 @@ else()
         ${AVFOUNDATION_FRAMEWORK}
         ${COREMEDIA_FRAMEWORK}
         ${COREVIDEO_FRAMEWORK}
+        ${COREGRAPHICS_FRAMEWORK}
+        ${IMAGEIO_FRAMEWORK}
         ${VISION_FRAMEWORK}
         ${COREMEDIAIO_FRAMEWORK})
     target_link_libraries(imgui PUBLIC ${ATEMFX_MAC_FRAMEWORKS})
@@ -411,4 +442,54 @@ if(BUILD_TESTING)
     endforeach()
     add_test(NAME source_health COMMAND source_health_test)
     add_test(NAME program_output COMMAND program_output_test)
+
+    add_executable(scene_preset_test
+        tests/scene_preset_test.cpp
+        src/presets/scene_preset.cpp
+        src/presets/preset_store.cpp
+        src/presets/boot_state.cpp
+        src/core/Paths.cpp
+        src/core/Log.cpp
+        src/video/program_output.cpp
+        src/effects/EffectChain.cpp
+        src/effects/EffectRegistry.cpp
+        src/effects/parameter_automation.cpp)
+    target_include_directories(scene_preset_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    if(MSVC)
+        target_compile_options(scene_preset_test PRIVATE /W4 /permissive- /utf-8)
+    else()
+        target_compile_options(scene_preset_test PRIVATE -Wall -Wextra)
+    endif()
+    add_test(NAME scene_preset COMMAND scene_preset_test)
+
+    add_executable(overlay_playback_test
+        tests/overlay_playback_test.cpp
+        src/overlays/overlay_model.cpp
+        src/overlays/overlay_playback.cpp)
+    target_include_directories(overlay_playback_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+    add_executable(overlay_compositor_test
+        tests/overlay_compositor_test.cpp
+        src/overlays/overlay_model.cpp
+        src/overlays/overlay_compositor.cpp)
+    target_include_directories(overlay_compositor_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+    add_executable(overlay_library_test
+        tests/overlay_library_test.cpp
+        src/overlays/overlay_library.cpp
+        src/overlays/overlay_model.cpp
+        src/core/Paths.cpp
+        src/core/Log.cpp)
+    target_include_directories(overlay_library_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+    foreach(target overlay_playback_test overlay_compositor_test overlay_library_test)
+        if(MSVC)
+            target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
+        else()
+            target_compile_options(${target} PRIVATE -Wall -Wextra)
+        endif()
+    endforeach()
+    add_test(NAME overlay_playback COMMAND overlay_playback_test)
+    add_test(NAME overlay_compositor COMMAND overlay_compositor_test)
+    add_test(NAME overlay_library COMMAND overlay_library_test)
 endif()

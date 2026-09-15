@@ -30,7 +30,8 @@ public:
 
     // CPU-writable and sample-only: BGRA8 in shared storage, for capture
     // frames arriving in system memory.
-    bool createUploadable(id<MTLDevice> device, uint32_t width, uint32_t height);
+    bool createUploadable(id<MTLDevice> device, uint32_t width, uint32_t height,
+                          bool trackGpuReads = false);
 
     void release();
 
@@ -40,11 +41,16 @@ public:
     void*    nativeTexture() const override { return (__bridge void*)texture_; }
 
     id<MTLTexture> metal() const { return texture_; }
+    void markGpuRead(std::uint64_t serial) const;
+    bool cpuWriteAvailable(std::uint64_t completedSerial) const;
+    bool tracksGpuReads() const { return trackGpuReads_; }
 
 private:
     id<MTLTexture> texture_ = nil;
     uint32_t       width_   = 0;
     uint32_t       height_  = 0;
+    bool           trackGpuReads_ = false;
+    mutable std::atomic<std::uint64_t> lastReadSerial_{0};
 };
 
 // A compiled effect: one Metal library holding the shared fullscreen vertex
@@ -84,7 +90,8 @@ private:
 class MetalTargetPool final : public TargetPool
 {
 public:
-    bool create(id<MTLDevice> device, uint32_t width, uint32_t height, MTLPixelFormat format);
+    bool create(id<MTLDevice> device, uint32_t width, uint32_t height, MTLPixelFormat format,
+                const std::atomic<std::uint64_t>* completedProcessingSerial);
 
     // CPU-writable and sample-only: BGRA8 in shared storage, for capture
     // frames arriving in system memory.
@@ -107,6 +114,7 @@ private:
     MTLPixelFormat format_ = MTLPixelFormatRGBA16Float;
     uint32_t       width_  = 0;
     uint32_t       height_ = 0;
+    const std::atomic<std::uint64_t>* completedProcessingSerial_ = nullptr;
 
     MetalTexture                                                   scratch_[kScratchCount];
     std::unordered_map<std::string, std::unique_ptr<MetalTexture>> persistent_;
@@ -195,6 +203,7 @@ public:
     id<MTLDevice>            metal() const { return device_; }
     id<MTLCommandQueue>      commandQueue() const { return queue_; }
     id<MTLCommandBuffer>     processingCommandBuffer() const { return processingCommands_; }
+    std::uint64_t            processingSerial() const { return processingSerial_; }
     id<MTLCommandBuffer>     uiCommandBuffer() const { return uiCommands_; }
     MTLRenderPassDescriptor* uiRenderPassDescriptor() const { return uiPassDescriptor_; }
 
@@ -204,6 +213,7 @@ private:
     {
         std::atomic<float> milliseconds{0.0f};
         std::atomic<bool>  hasResult{false};
+        std::atomic<std::uint64_t> completedProcessingSerial{0};
     };
 
     id<MTLDevice>       device_ = nil;
@@ -221,6 +231,7 @@ private:
     MetalFullscreenPass  fullscreenPass_;
 
     std::shared_ptr<TimingState> timing_ = std::make_shared<TimingState>();
+    std::uint64_t processingSerial_ = 0;
 
     std::string adapterName_ = "unknown";
     bool        headless_    = false;

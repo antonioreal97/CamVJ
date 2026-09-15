@@ -22,6 +22,144 @@ class ParameterSet;
 class VideoSource;
 struct EffectContext;
 
+// UI-only view of the overlay subsystem (FX-026).
+//
+// These types deliberately live at the UI seam rather than exposing the
+// library or compositor. App owns and refreshes the vectors between frames;
+// panels only borrow them and emit at most one command for App to consume
+// after drawing. This keeps file picking, decoding, disk IO and GPU resource
+// changes out of the ImGui call stack and, therefore, out of the video path.
+enum class OverlayMediaType : uint8_t
+{
+    StillPng,
+    PngSequence,
+};
+
+enum class OverlayCanvasFormat : uint8_t
+{
+    Landscape16x9,
+    Portrait9x16,
+};
+
+enum class OverlayPanelPlayback : uint8_t
+{
+    Loop,
+    OneShot,
+};
+
+struct OverlayVariantUiState
+{
+    bool              present    = false;
+    uint32_t          width      = 0;
+    uint32_t          height     = 0;
+    uint32_t          frameCount = 0;
+    float             fps        = 0.0f;
+    const GpuTexture* thumbnail  = nullptr; // borrowed first frame; never owned by UI
+    std::string       status;
+};
+
+struct OverlayAssetUiState
+{
+    std::string           id;
+    std::string           name;
+    OverlayMediaType      mediaType = OverlayMediaType::StillPng;
+    OverlayVariantUiState landscape;
+    OverlayVariantUiState portrait;
+    bool                  inStack          = false;
+    uint32_t              presetReferences = 0;
+    std::string           status;
+};
+
+struct OverlayLayerUiState
+{
+    uint64_t         id = 0;
+    std::string      assetId;
+    std::string      name;
+    OverlayMediaType mediaType = OverlayMediaType::StillPng;
+    bool             enabled = true; // operator intent, including when a variant is absent
+    float            opacity = 1.0f;
+    bool             variantAvailable = true;
+    bool             visible          = true;
+    bool             transitioning    = false;
+    OverlayPanelPlayback playback     = OverlayPanelPlayback::Loop;
+    float            fps              = 30.0f;
+    bool             paused           = false;
+    uint32_t         displayedFrame   = 0;
+    uint32_t         frameCount       = 0;
+    uint64_t         underflows       = 0;
+    std::string      status;
+};
+
+enum class OverlayImportPhase : uint8_t
+{
+    Idle,
+    Picking,
+    Validating,
+    Copying,
+    Preparing,
+    Failed,
+};
+
+struct OverlayImportUiState
+{
+    OverlayImportPhase phase       = OverlayImportPhase::Idle;
+    float              progress    = 0.0f;
+    bool               cancellable = false;
+    std::string        status;
+};
+
+struct OverlayPanelSnapshot
+{
+    // Assets must be kept in case-insensitive display-name order by the
+    // producer. Sorting inside draw would allocate once per video frame.
+    const std::vector<OverlayLayerUiState>* layers = nullptr; // front to back
+    const std::vector<OverlayAssetUiState>* assets = nullptr;
+
+    OverlayCanvasFormat format = OverlayCanvasFormat::Landscape16x9;
+    OverlayImportUiState import;
+    std::string          status;
+
+    // Increment only after an import commits. The UI uses the edge to open
+    // the library exactly once and select the imported logical asset.
+    uint64_t    importSerial = 0;
+    std::string lastImportedAssetId;
+};
+
+enum class OverlayUiCommandType : uint8_t
+{
+    None,
+    SetLayerEnabled,
+    SetLayerOpacity,
+    SetLayerPlayback,
+    SetLayerFps,
+    SetLayerPaused,
+    RestartLayer,
+    MoveLayer,
+    RemoveLayer,
+    AddLayer,
+    BeginImport,
+    AddVariant,
+    ReplaceVariant,
+    RemoveAsset,
+    CancelImport,
+    DismissStatus,
+};
+
+struct OverlayUiCommand
+{
+    OverlayUiCommandType type = OverlayUiCommandType::None;
+    uint64_t             layerId = 0;
+    std::string          assetId;
+    bool                 enabled = false;
+    float                opacity = 1.0f;
+    OverlayPanelPlayback playback = OverlayPanelPlayback::Loop;
+    float                fps = 30.0f;
+    bool                 paused = false;
+    int                  moveDelta = 0;
+    OverlayMediaType     mediaType = OverlayMediaType::StillPng;
+    OverlayCanvasFormat  format = OverlayCanvasFormat::Landscape16x9;
+};
+
 // Everything the panels are allowed to touch this frame.
 //
 // The UI borrows the frame snapshot, edits operator controls and requests
@@ -114,11 +252,25 @@ struct UiFrameState
     bool*        vsync               = nullptr;
     bool*        requestShaderReload = nullptr;
     std::string* status              = nullptr;
+
+    // Scene presets (FX-009). The panel writes a recall id or a save name;
+    // App applies between frames so the chain is never rebuilt mid-draw.
+    std::string* recallPresetId = nullptr;
+    std::string* savePresetName = nullptr;
+    bool*        requestPresetSave = nullptr;
+
+    // Managed overlay library + active stack (FX-026). App clears the command
+    // to None before draw, then consumes it between frames. Null keeps older
+    // callers and headless/test harnesses source-compatible.
+    const OverlayPanelSnapshot* overlays      = nullptr;
+    OverlayUiCommand*        overlayCommand = nullptr;
 };
 
 void drawProgramPanel(UiFrameState& state);
 void drawSourcePanel(UiFrameState& state);
 void drawOutputPanel(UiFrameState& state);
+void drawPresetsPanel(UiFrameState& state);
+void drawOverlaysPanel(UiFrameState& state);
 void drawEffectsPanel(UiFrameState& state);
 void drawPreviewPanel(UiFrameState& state);
 void drawStatsPanel(UiFrameState& state);
@@ -127,6 +279,11 @@ void drawStatsPanel(UiFrameState& state);
 // and the parameters of the effect the operator is working on. See
 // ui/Inspector.h for what decides which one is showing.
 void drawInspectorPanel(UiFrameState& state);
+
+// Overlay-specific inspector face and sidebar height. Kept with its renderer
+// so the layout pass and the controls cannot disagree about the four slots.
+void  drawOverlayInspectorPanel(UiFrameState& state);
+float overlaysPanelHeight();
 
 // Content height of the PROGRAM panel: its caption plus the mode row. The
 // layout pass sizes the window from it, and a second copy of the arithmetic

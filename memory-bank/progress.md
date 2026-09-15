@@ -9,8 +9,8 @@
 - Efeitos: passthrough, rgb_split, pixelate, fm_raster, subpixel, shutter,
   frame_delay, vhs, crt, mirror (HLSL+MSL) (`auto_frame` veio depois, na
   extensão de tracking)
-- UI: Source, Effects (add/remove/reorder), Preview, Stats, hot reload;
-  seções SOURCE / OUTPUT / EFFECTS dobram ao clicar o título; a coluna
+- UI: Source, Presets, Overlays, Effects (add/remove/reorder), Preview, Stats, hot reload;
+  seções SOURCE / OUTPUT / PRESETS / OVERLAYS / EFFECTS dobram ao clicar o título; a coluna
   esquerda recolhe a um rail de títulos (header chevron) para os monitores
   crescerem
 - CLI headless / frames / dump PPM / enable / no-vsync
@@ -178,6 +178,47 @@ Implementado no macOS 13+, ponta a ponta ainda por validar:
   mensagem acionável e exit 1. **Falta** confirmar quadros chegando num app de
   chamada — depende de habilitar a extensão nos Ajustes do Sistema.
 
+## Extensão solicitada: presets de cena (FX-009 mínimo)
+
+Aberta cedo para o caminho de evento macOS (M3 parcial):
+
+- `src/presets/scene_preset.*` — captura/aplica cadeia + FX/Clean; JSON próprio.
+- `src/presets/preset_store.*` — factory looks + presets do operador em
+  Application Support.
+- `src/presets/boot_state.*` + `src/core/Paths.*` — venue boot (source,
+  display, portrait).
+- Painel **PRESETS** na sidebar; Operation lock protege recall/save.
+- CTest `scene_preset`. Looks de fábrica: Clean Frame, RGB Pulse, Pixel Stage,
+  Shutter Trail, Echo Delay, VHS/CRT.
+
+## Extensão solicitada: overlays próprios (FX-026)
+
+M6 aberto cedo só para gráficos RGBA limitados:
+
+- `src/overlays/`: modelo, playback, biblioteca gerenciada, decoder de PNG por
+  plataforma, worker assíncrono, compositor e runtime.
+- PNG estático ou sequência de 2–300 frames; raster exato 1920×1080 (16:9) ou
+  1080×1920 (9:16), até quatro layers, ordem back-to-front internamente.
+- Várias sequências podem ficar configuradas desligadas; apenas uma fica
+  ativa/saindo em fade. Loop/one-shot, 1–30 fps, pause/restart e opacidade.
+- Import/replace validam a cópia em staging e publicam por rename/manifest
+  atômico; cancelamento não publica parcial. Remoção autorizada vai para
+  `.trash`. Arquivo original não é dependência depois do import.
+- Decoder roda fora do frame; `service()` só drena fila SPSC e usa rings de
+  upload fixos. Se a GPU ainda lê todos os slots, segura o último quadro e
+  conta underflow — nunca espera.
+- Metal rastreia serial de leitura/conclusão apenas para texturas `overlay.*`,
+  sem ampliar `Rhi.h` nem mudar upload de câmera.
+- Compositor GPU depois da chain e antes de PROGRAM, alpha premultiplicado.
+  Clean usa o mesmo `effectMix`; Freeze/Black mantêm a pilha rodando; padrão
+  LED Mapping faz bypass. `chainPreview` inclui overlays.
+- Sidebar OVERLAYS entre PRESETS e EFFECTS; library e layer usam o inspector
+  largo. Import não leva ao ar. Operation lock protege biblioteca/estrutura.
+- Scene preset schema v2 guarda a pilha; v1 carrega pilha vazia. Factory looks
+  limpam overlays por terem stack vazio.
+- CTests: `overlay_playback`, `overlay_compositor`, `overlay_library`; shaders
+  `overlay_composite` em HLSL/MSL. macOS verificado; Windows escrito, não validado.
+
 ## Prioridade ativa: macOS primeiro
 
 Decisão de 2026-09-09: priorizar o desenvolvimento/validação macOS antes de
@@ -218,11 +259,11 @@ Windows pendentes.
 | --- | --- |
 | Captura DeckLink real/saída DeckLink, filas, clock de vídeo, split de thread | M1 |
 | Grafo DAG, efeito de feedback | M2 |
-| Presets JSON | M3 |
+| Presets além do corte FX-009 (slots numerados de mixer, etc.) | M3 |
 | `src/atem/`, FX Bus, FX TAKE | M4 |
 | MIDI, áudio | M5 |
-| Fill/Key, layers, blend | M6 |
-| Catch2, spdlog, JSON loader | não issueados |
+| Fill/Key, blend modes, layer graph/transformações gerais | M6 (FX-026 cobre só overlays PNG limitados) |
+| Catch2, spdlog, JSON library de terceiros | não issueados |
 | CI Windows / CD de pacotes | CI macOS self-hosted já existe |
 | Detector de pessoa no Windows | FX-022, decisão pendente |
 | Linux / terceiro backend | fora |
@@ -232,7 +273,7 @@ Windows pendentes.
 - `TargetPool::persistent()`
 - `EffectRegistry` + UI genérica
 - `ParameterSet`
-- Loops escalares por parâmetro dos nós da chain linear, sem persistência
+- Loops escalares por parâmetro dos nós da chain linear; persistem só em scene preset
 
 Usar isso. Não marcar FX-007/008/009 como feitos.
 
@@ -257,9 +298,9 @@ Usar isso. Não marcar FX-007/008/009 como feitos.
 ```
 
 Obrigatório em macOS com GPU antes de chamar qualquer mudança de código de
-feita. O gate mais recente passou em 2026-09-09 no Apple M4: CTest 2/2,
-`--check-shaders` 11/11 e 200 frames com `auto_frame` default ligado, 2,417 ms
-de processamento GPU. A etapa FX-010 também tinha passado em 2026-09-08 fora
+feita. O gate de FX-026 passou em 2026-09-15 no Apple M4: CTest 10/10,
+`--check-shaders` 15/15 e 200 frames com `auto_frame` default ligado e stack
+de overlays vazio. A etapa FX-010 também tinha passado em 2026-09-08 fora
 do sandbox: Apple M4, 200 frames, 1,131 ms de processamento GPU, build Release
 e 20 verificações de CLI; CMake rejeitou DeckLink habilitado em plataforma não
 suportada. A validação de DeckLink e dos diagnósticos Unicode no Windows

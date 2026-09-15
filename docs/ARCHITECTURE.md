@@ -1,7 +1,8 @@
 # CamVJ — Architecture
 
 **Status: M0 implemented, plus camera inputs, subject tracking, display
-output, PROGRAM safety and the macOS virtual camera; M1 in progress.** FX-010
+output, PROGRAM safety, the macOS virtual camera, scene presets and the
+FX-026 overlay compositor/library; M1 in progress.** FX-010
 adds a standalone DeckLink discovery command, with Windows build and hardware
 validation still pending. SDI capture, playback and ATEM are not implemented. The M1 threading split and
 the M4 control plane remain design — see [VIDEO_PIPELINE.md](VIDEO_PIPELINE.md) and
@@ -12,7 +13,8 @@ description conflicts with this document, **this document wins**.
 
 The frame loop, ownership and CLI are in [RUNTIME.md](RUNTIME.md). How to add
 an effect is in [EFFECT_SYSTEM.md](EFFECT_SYSTEM.md). Subject tracking and the
-framing controller are in [TRACKING.md](TRACKING.md).
+framing controller are in [TRACKING.md](TRACKING.md). Managed graphics and
+their real-time compositor are in [OVERLAYS.md](OVERLAYS.md).
 
 ---
 
@@ -56,11 +58,11 @@ a GPU-generated test source, on a single thread, driven by the window loop
 ```text
         ┌──────────────── UI Thread (Win32 / AppKit + ImGui) ──────────────┐
         │                                                                  │
-        │   VideoSource ──► EffectChain ──► ProgramOutput ──┬─► Preview    │
-        │   (test pattern     (GPU)          (FX / Clean /  │   (ImGui)    │
-        │    or camera)                       Freeze/Black) ├─► OutputSurface
-        │                                                   ├─► virtual cam │
-        │                                                   └─► PPM dump    │
+        │   VideoSource ──► EffectChain ──► Overlays ──► ProgramOutput ─┬─► Preview
+        │   (test pattern     (GPU)          (GPU)       (FX / Clean /  │   (ImGui)
+        │    or camera)                                  Freeze/Black)  ├─► OutputSurface
+        │                                                               ├─► virtual cam
+        │                                                               └─► PPM dump
         └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -68,6 +70,12 @@ a GPU-generated test source, on a single thread, driven by the window loop
 webcam all read the picture it published, so what the operator sees on PROGRAM
 is what every consumer gets. Its states and the input-loss policy are in
 [RUNTIME.md](RUNTIME.md#program-safety).
+
+`OverlaySystem` is the bounded compositing stage after the linear effect chain
+and before that gate. It is not an `Effect`: it owns a managed media library,
+background PNG decode, transport and a maximum four-layer GPU stack. Clean
+uses the existing `effectMix` to remove visual effects and overlays together;
+framing remains. See [OVERLAYS.md](OVERLAYS.md).
 
 M0 deliberately runs single-threaded: there is no capture clock to decouple
 from yet. The seam where the processing thread will be split off is
@@ -103,6 +111,9 @@ GPU Processing Thread
         │
         ▼
    Effect Chain
+        │
+        ▼
+ Overlay Compositor
         │
         ▼
    Output Queue
@@ -141,6 +152,10 @@ src/
 ├── effects/          Effect abstraction, registry, chain, built-in effects.
 │                     Per-parameter loop clocks and scalar evaluation.
 │                     Depends on gpu/Rhi.h, never on a backend.
+├── overlays/         Managed PNG library, asynchronous decode/playback and
+│   ├── mac/          four-layer GPU compositor. ImageIO on macOS, WIC on
+│   └── win32/        Windows; portable runtime never names backend types.
+├── presets/          Scene JSON, factory/user looks and venue boot state.
 ├── tracking/         Subject detection, the framing controller and the
 │   └── mac/          source-to-canvas mapping. Control plane: no GPU, no
 │                     readback, its own thread. Windows has no detector yet
@@ -169,6 +184,8 @@ Dependency direction is strictly downward:
 app ──► ui ──► effects ──► gpu/Rhi.h ◄── gpu/d3d11, gpu/metal
         │        │
         └────────┴──► video ──► gpu/Rhi.h
+        │
+        └───────────► overlays ──► gpu/Rhi.h
 
         effects ──► tracking/framing.h        (scalar, no GPU, no platform)
         app     ──► tracking/Tracker.h
@@ -211,11 +228,13 @@ adding SDI in M1 means adding an implementation rather than changing the
 pipeline — and why the capture-to-GPU path is already built and exercised
 before the hardware arrives.
 
-The one place CPU pixels enter the pipeline is `TargetPool::upload`, because
-capture hardware hands over system memory and there is no way around it. It is
-a memcpy into a BGRA8 texture; everything after that — scaling to the project
-raster, aspect handling, mirroring, the vertical flip that bottom-up capture
-stacks need — happens on the GPU in `source_blit`.
+CPU pixels enter the pipeline only through `TargetPool::upload`, because
+capture hardware and decoded overlay PNGs originate in system memory. It is a
+copy into a BGRA8 texture. Camera scaling, aspect handling, mirroring and the
+vertical flip that bottom-up capture stacks need happen on the GPU in
+`source_blit`; overlay placement and alpha composition happen on the GPU in
+`overlay_composite`. PNG decode is background control work, never image
+processing on the frame thread.
 
 ---
 
@@ -321,9 +340,10 @@ constant buffer. Evaluation is bounded scalar CPU work, with no allocation,
 locking, logging or CPU image processing in steady state; rendering remains
 entirely on the GPU. The RHI and both shader layouts stay unchanged.
 
-This is a user-requested extension of the linear effect system. Settings are
-session-only. It introduces neither the M2 DAG nor M3 presets nor M5 external
-modulation. The full control contract is in [EFFECT_SYSTEM.md](EFFECT_SYSTEM.md).
+This is a user-requested extension of the linear effect system. Unsaved
+settings are session-only; scene presets can persist them. It introduces
+neither the M2 DAG nor M5 external modulation. The full control contract is in
+[EFFECT_SYSTEM.md](EFFECT_SYSTEM.md).
 
 ---
 
@@ -381,12 +401,11 @@ place, and it is the check every change has to pass.
 ./build/bin/atem_fx --headless --frames 200
 ```
 
-Five portable C++ tests additionally run through CTest with `BUILD_TESTING=ON`,
-without a GPU or third-party test framework: `parameter_automation`, `framing`,
-`source_mapping`, `source_health` and `program_output`. They check scalar
-contracts — loop evaluation, the framing controller, source-to-canvas mapping,
-the input-loss policy and the PROGRAM state machine. They do not replace the
-headless rendering gate.
+Ten portable C++ tests additionally run through CTest with `BUILD_TESTING=ON`,
+without a GPU or third-party test framework. Alongside automation, framing,
+source mapping, display routing, input health and PROGRAM state, they cover
+scene-preset migration plus overlay playback, composition and managed-library
+transactions. They do not replace the headless rendering gate.
 
 ---
 
@@ -395,14 +414,16 @@ headless rendering gate.
 | Thread            | Owns                                  | May block on | Status      |
 | ----------------- | ------------------------------------- | ------------ | ----------- |
 | UI                | Window messages, ImGui, parameter edits, and in M0 the whole pipeline | anything | **M0: this is the only thread** |
-| Processing        | D3D11 immediate context, effect chain | nothing      | M1: split off `App::renderFrame()` |
+| Processing        | D3D11 immediate context, effect chain, overlay compositor | nothing | M1: split off `App::renderFrame()` |
 | Capture           | DeckLink input callback               | nothing      | M1          |
 | Output            | DeckLink scheduled playback           | nothing      | M1          |
 | ATEM              | Switcher socket                       | network      | M4          |
 | MIDI / Audio      | Device callbacks                      | device       | M5          |
 
 Metal GPU timing uses a completion handler on a background thread that writes
-atomics. That is not a processing thread.
+atomics. Overlay PNG decode and exceptional import/validation also run on
+background workers; they publish bounded results and never own GPU processing.
+None of these is the M1 processing thread.
 
 In M0 the processing work runs on the UI thread. That is a known, temporary
 simplification, valid only while there is no external video clock. It is
@@ -423,6 +444,7 @@ App
  ├── VirtualCameraOutput (null until PROGRAM is sent to a webcam)
  ├── Tracker             (null where the platform has no detector)
  ├── EffectChain
+ ├── OverlayLibrary + OverlaySystem + native source picker
  ├── ProgramOutput
  ├── FrameTiming
  └── UiLayer             (idle when headless)

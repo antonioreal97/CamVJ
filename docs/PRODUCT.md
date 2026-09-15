@@ -1,8 +1,9 @@
 # CamVJ — Product
 
 **Status: V1 is the product goal. M0 is the working video pipeline, extended
-since with camera inputs, subject tracking, display output and PROGRAM safety.
-M1 has optional Windows discovery code awaiting Windows validation.**
+since with camera inputs, subject tracking, display output, PROGRAM safety,
+scene presets and bounded operator overlays. M1 has optional Windows discovery
+code awaiting Windows validation.**
 
 ---
 
@@ -39,6 +40,9 @@ A GPU engine with two backends (Metal on macOS, Direct3D 11 on Windows) that:
   and with optional loop automation on every parameter;
 - keeps a tracked subject framed (macOS Vision detector; Windows runs the same
   effect on manual controls);
+- imports operator-authored 16:9/9:16 PNG graphics into a managed library and
+  composites up to four static or animated overlay layers on the GPU
+  ([OVERLAYS.md](OVERLAYS.md));
 - drives PROGRAM through four operator states — FX, Clean, Freeze, Black —
   with a latched Freeze on input loss ([RUNTIME.md](RUNTIME.md#program-safety));
 - sends that PROGRAM picture to a display as a borderless full-screen signal,
@@ -53,8 +57,9 @@ above is production there. Windows remains the production platform for the
 round-trip in the diagram: it is the only one with DeckLink and ATEM SDK
 support, and its DeckLink code is written but not yet compiled.
 
-What is still missing for V1: SDI capture and playback (M1), presets (M3) and
-ATEM control (M4). There is no MIDI and no audio (M5).
+What is still missing for V1: SDI capture and playback (M1) and ATEM control
+(M4). Scene presets (FX-009 minimum), venue boot and operator overlays (FX-026)
+exist on the macOS show path. There is no MIDI and no audio (M5).
 
 ---
 
@@ -88,8 +93,10 @@ paces frames; the numbers above are the bar the timings are judged against.
 
 ## Explicitly out of scope for V1
 
-AI, complex layer stacks, particles, NDI, streaming, recording, timeline
-editing, eight simultaneous cameras, blend modes, LUTs, OSC, Stream Deck.
+AI, general or unbounded layer graphs, particles, NDI, streaming, recording,
+timeline editing, eight simultaneous cameras, blend modes, Fill/Key output,
+LUTs, OSC and Stream Deck. The bounded four-layer PNG overlay stack is the
+deliberate exception, not a general compositor editor.
 
 ---
 
