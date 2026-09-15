@@ -109,6 +109,11 @@ Stats panel already accounts for it.
   the centred letterbox strip on that canvas, exactly as on the wall.
 - **One sender.** Starting fails while another application is feeding the
   same sink, and says so.
+- **Operator tallies.** OUTPUT's WEBCAM group shows `START` / `LIVE` / `STOP` /
+  `FAIL` / `OFF`. `Failed` is collapsed to `Stopped` before draw (so the
+  worker can be released without blocking the frame loop); a sticky fault
+  flag keeps `FAIL` and the magenta error text until the next Start or a
+  successful send. Busy is never a generic "Working".
 - **The device is named after its owner.** See above.
 - **macOS 13+.** Below that the panel reports the feature as unsupported;
   the CLI flag warns and exits non-zero.

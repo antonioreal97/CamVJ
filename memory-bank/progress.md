@@ -281,5 +281,7 @@ com CTest `program_output` compilado/rodado à mão no Linux (378 checks).
 - **`ProgramOutput::safetyHold()`**: Freeze de perda ≠ Freeze do operador;
   caption `HOLD · INPUT`, header, tooltip, tag HOLD no preview.
 - Stats: `CAMERA HOLDING` (EN), sem jargão Stale na faixa.
-- Docs: `EFFECT_SYSTEM.md`, `BUILD.md`, `RUNTIME.md` § Input loss.
-  Memory-bank atualizado.
+- **Webcam OUTPUT:** tallies `START`/`LIVE`/`STOP`/`FAIL`/`OFF`; fault sticky
+  após Failed→Stopped; sem `"Working"`; CTest `virtual_camera_status`.
+- Docs: `EFFECT_SYSTEM.md`, `BUILD.md`, `RUNTIME.md` § Input loss,
+  `VIRTUAL_CAMERA.md`. Memory-bank atualizado.

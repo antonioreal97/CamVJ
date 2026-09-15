@@ -2,6 +2,11 @@
 
 ## Foco
 
+Pedido 2026-09-15 (continuação PR #4): **webcam OBS Starting/Stopping/FAIL**.
+Evidência: OUTPUT colapsava busy em `"Working"`; `Failed` virava `Stopped`
+antes do draw. Entregue tallies START/LIVE/STOP/FAIL, fault sticky magenta,
+`virtualCameraTallyLabel` + CTest. Sem mudança de hot path/submit.
+
 Pedido 2026-09-15 (continuação PR #4): **confiança do operador sob falha de
 entrada**. Evidência: SOURCE mostrava `WxH · frames` em Stale; mensagem de
 recovery só no stats (some sob PARAMETERS); Freeze de safety idêntico ao
