@@ -132,7 +132,7 @@ Every change must at least pass this before it is called done:
 
 ### Portable checks (CTest)
 
-`BUILD_TESTING=ON` (the default) builds eleven standalone test executables from
+`BUILD_TESTING=ON` (the default) builds fourteen standalone test executables from
 `tests/` and registers them in CTest:
 
 | Test | Source | What it covers |
@@ -143,11 +143,14 @@ Every change must at least pass this before it is called done:
 | `display_routing` | `display_routing_test.cpp` | stable display selection and route-loss policy |
 | `source_health` | `source_health_test.cpp` | input-loss and reconnect policy |
 | `program_output` | `program_output_test.cpp` | the PROGRAM state machine and the FX/Clean dissolve |
+| `virtual_camera_status` | `virtual_camera_status_test.cpp` | the webcam tallies (Starting / Sending / Stopping / FAIL) |
 | `program_recorder` | `program_recorder_test.cpp` | PROGRAM recorder state and bounded handoff policy |
 | `scene_preset` | `scene_preset_test.cpp` | scene JSON, recall and v1→v2 migration |
 | `overlay_playback` | `overlay_playback_test.cpp` | layer fades, loop and one-shot clocks |
 | `overlay_compositor` | `overlay_compositor_test.cpp` | order, opacity, format and shader-failure fallback |
 | `overlay_library` | `overlay_library_test.cpp` | managed import, variant replacement, cancellation and trash removal |
+| `face_tracks` | `face_tracks_test.cpp` | face identities: IoU and distance association, expiry, capacity |
+| `face_tiles` | `face_tiles_test.cpp` | Face Mosaic tiles: copies, budgets, fades, stable layout, placement area |
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
@@ -515,13 +518,14 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j8
 ./scripts/package_macos.sh
 ```
 
-Produces `dist/CamVJ-<version>-macos-<arch>.dmg` with `CamVJ.app` and an
-Applications symlink (drag-to-install). On the current release host this is
-`dist/CamVJ-1.0.0-macos-arm64.dmg`; Intel Macs can build a local `macos-x64`
-package, but no universal binary is produced by the script. Inside the bundle
-the executable remains `atem_fx` and the bundle id remains `fx.atem.engine` so
-an existing camera TCC grant is not invalidated. Shaders live in
-`Contents/Resources/shaders`.
+Produces `dist/CamVJ-<version>-macos-<arch>.dmg` with `CamVJ.app`, an
+Applications symlink (drag-to-install), and `READ_ME_FIRST.txt` (Gatekeeper,
+camera permission, LED wall path, OBS Virtual Camera). On the current release
+host this is `dist/CamVJ-1.0.0-macos-arm64.dmg`; Intel Macs can build a local
+`macos-x64` package, but no universal binary is produced by the script. Inside
+the bundle the executable remains `atem_fx` and the bundle id remains
+`fx.atem.engine` so an existing camera TCC grant is not invalidated. Shaders
+live in `Contents/Resources/shaders`.
 
 First open on another Mac: right-click the app → **Open** (Gatekeeper). Grant
 camera access when prompted, or later under **System Settings › Privacy &

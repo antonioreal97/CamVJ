@@ -564,7 +564,22 @@ void drawPreviewPanel(UiFrameState& state)
         const char* tag = nullptr;
         if (state.outputActive)
         {
-            tag = state.inputHealthy ? "LIVE" : "FROZEN";
+            if (state.programSafetyHold)
+            {
+                tag = "HOLD";
+            }
+            else if (state.programMode && *state.programMode == ProgramMode::Freeze)
+            {
+                tag = "FROZEN";
+            }
+            else if (state.programMode && *state.programMode == ProgramMode::Black)
+            {
+                tag = "BLACK";
+            }
+            else
+            {
+                tag = state.inputHealthy ? "LIVE" : "HOLD";
+            }
         }
         drawMonitorLabel("PROGRAM", theme::splitMagenta, tag);
 

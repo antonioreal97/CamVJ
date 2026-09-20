@@ -1,9 +1,10 @@
 # CamVJ — Effect System
 
 **Status: Implemented (M0).** The engine ships a linear `EffectChain`, a
-registry, generic `ParameterSet` UI, and eleven built-in effects — four from
-M0, `auto_frame` from the subject tracking extension, plus `subpixel`,
-`fm_raster`, `crt`, `shutter`, `frame_delay` and `vhs`. A DAG / graph
+registry, generic `ParameterSet` UI, and twelve built-in effects — four from
+M0, `auto_frame` from the subject tracking extension, `face_mosaic` from the
+Face Mosaic extension, plus `subpixel`, `fm_raster`, `crt`, `shutter`,
+`frame_delay` and `vhs`. A DAG / graph
 editor (FX-007) and a feedback *effect* (FX-008) are not done. Persistent
 targets exist as infrastructure; that is not M2.
 
@@ -65,8 +66,9 @@ including ones written after the UI was compiled — without a single `if`.
 
 Types today: `Float`, `Int`, `Bool`. An integer can optionally carry zero-based
 choice names (`Parameter::makeChoice`); the generic UI draws those as a combo
-while packing and automation remain scalar. Test Pattern uses this for its
-named patterns. Integers without choices, such as Mirror's mode, remain sliders.
+while packing and automation remain scalar. Test Pattern, camera Fit, Mirror
+mode and Frame Delay blend use that path. Integers without choices (block
+size, grid, copy count) remain sliders.
 
 ---
 
@@ -207,7 +209,7 @@ registration cannot be silently dropped by the linker.
 ## Built-in effects
 
 Registered in `src/effects/BuiltinEffects.cpp`. Default chain in
-`App::createDefaultChain()` adds all eleven; `auto_frame` starts enabled
+`App::createDefaultChain()` adds all twelve; `auto_frame` starts enabled
 unless `--enable` overrides. Auto Frame is first so the rest of the chain
 treats the LED picture, not the wide shot. `shutter` and `frame_delay` sit
 after `subpixel` so the look can smear and echo; `vhs` then `crt` are last,
@@ -226,6 +228,7 @@ in that order — the tape damages the signal and the tube then displays it.
 | `crt`         | CRT         | Distort  | `scanlines`, `mask`, `aberration`, `contrast`, `mix` | Linear  |
 | `mirror`      | Mirror      | Geometry | `mode` 0–4, `pivot` 0–1 (0.5)                   | Linear  |
 | `auto_frame`  | Auto Frame  | Framing  | `follow`, `portrait`, framing — see TRACKING.md | Linear  |
+| `face_mosaic` | Face Mosaic | Crowd    | `background`, `threshold`, `max_faces`, `padding`, `copies`, `max_tiles`, `min_scale`, `max_scale`, `rotation`, `spread`, `opacity`, `feather`, `roundness`, `fade`, `seed` | Linear  |
 
 `passthrough` exists to prove the chain is wired and as the template to copy.
 
@@ -345,6 +348,37 @@ stamped in. Both are allocated in `initialize()`, which is what keeps 33 MB of
 allocation out of the moment the operator enables the effect on air.
 
 Otherwise only `TestPatternSource` uses the pool, writing `"source.frame"`.
+
+---
+
+## Sprites
+
+`SpritePass` is the RHI's second primitive, added for `face_mosaic` after a
+design decision (docs/plans/2026-09-19-face-mosaic.md). It draws up to
+`kMaxSpriteInstances` (64) textured quads in one instanced draw, blended
+premultiplied source-over onto whatever the target already holds. Each
+`SpriteInstance` is three float4 rows: destination centre and half extent,
+source UV centre and half extent, and rotation plus opacity.
+
+Why it exists: the fullscreen pass costs a whole 1080p frame of bandwidth per
+call, so a tile per pass costs ~0.15 ms each; 64 tiles in one sprite draw cost
+0.54 ms on an Apple M4. Instances travel inline (Metal `setVertexBytes`, a
+3 KB D3D11 constant buffer written with `WRITE_DISCARD`), so there is no GPU
+buffer the next frame could overwrite while the GPU still reads it.
+
+A sprite shader is marked by its fragment entry point: `sprite_fragment` in
+both MSL and HLSL. It reads `SpriteVSOutput` (source UV, a `-1..1` local
+coordinate for masks, opacity) and returns premultiplied colour. The shared
+vertex stage is `sprite_vertex` in `common.metal` and `shaders/hlsl/sprite.hlsl`.
+Each pass refuses the other kind of shader, and `source` may never be the
+target.
+
+`face_mosaic` costs more than the four-item recipe of a new effect: a second
+shader pair (`face_tile`), the portable `FaceTileManager`
+(`src/effects/face_tiles.*`) and a control-plane input. The input is generic:
+an effect declares `inputs()` (today `kEffectInputFaces`), and App runs the
+matching sensor only while such a node is enabled. The next crowd effect adds
+nothing to App.
 
 ---
 

@@ -16,6 +16,7 @@
 #include "platform/Display.h"
 #include "platform/OutputWindow.h"
 #include "platform/Window.h"
+#include "tracking/FaceSensor.h"
 #include "tracking/Tracker.h"
 #include "ui/UiLayer.h"
 #include "video/FrameTiming.h"
@@ -174,6 +175,9 @@ private:
     // a video frame. Null where the platform has no tracker.
     std::unique_ptr<Tracker> tracker_;
     std::string              trackingStatus_;
+
+    // Idle until an enabled node asks for faces (EffectChain::enabledInputs).
+    std::unique_ptr<FaceSensor> faceSensor_;
     bool                     pickSubjectMode_ = false;
     std::vector<TrackingCandidate> trackingCandidates_;
     TrackingLockRequest            requestedLock_;

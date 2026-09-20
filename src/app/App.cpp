@@ -393,6 +393,7 @@ bool App::createDefaultChain()
     // subject on the wall. Other effects stay off until the operator adds them.
     const Preset presets[] = {
         {"auto_frame", true},
+        {"face_mosaic", false},
         {"passthrough", false},
         {"rgb_split", false},
         {"pixelate", false},
@@ -451,8 +452,9 @@ bool App::checkShaders()
         const std::string stem = entry.path().stem().string();
 
         // common holds shared declarations and is never a program of its own;
-        // fullscreen is the vertex shader, compiled by the backend at start-up.
-        if (stem == "common" || stem == "fullscreen")
+        // fullscreen and sprite are the vertex shaders, compiled by the backend
+        // at start-up.
+        if (stem == "common" || stem == "fullscreen" || stem == "sprite")
         {
             continue;
         }
@@ -503,15 +505,26 @@ bool App::selectSource(int index)
     // arrive on another thread and installing the tap would be a race. A
     // source with no frames in system memory ignores this and tracking
     // reports that it is seeing nothing.
-    if (candidate && tracker_)
+    // One observer feeds both sensors; each returns at once for a frame it
+    // does not want, so the capture thread pays for at most the copies a
+    // hungry worker asked for.
+    if (candidate && (tracker_ || faceSensor_))
     {
-        Tracker* tracker = tracker_.get();
-        candidate->setFrameObserver([tracker](const uint8_t* bgra,
-                                              uint32_t       width,
-                                              uint32_t       height,
-                                              std::size_t    rowBytes,
-                                              bool           bottomUp) {
-            tracker->submit(bgra, width, height, rowBytes, bottomUp);
+        Tracker*    tracker = tracker_.get();
+        FaceSensor* faces   = faceSensor_.get();
+        candidate->setFrameObserver([tracker, faces](const uint8_t* bgra,
+                                                     uint32_t       width,
+                                                     uint32_t       height,
+                                                     std::size_t    rowBytes,
+                                                     bool           bottomUp) {
+            if (tracker)
+            {
+                tracker->submit(bgra, width, height, rowBytes, bottomUp);
+            }
+            if (faces)
+            {
+                faces->submit(bgra, width, height, rowBytes, bottomUp);
+            }
         });
     }
 
@@ -546,6 +559,11 @@ bool App::selectSource(int index)
         tracker_->unlock();
         tracker_->setEnumerateCandidates(false);
     }
+    // Same for face identities.
+    if (faceSensor_)
+    {
+        faceSensor_->reset();
+    }
     pickSubjectMode_       = false;
     requestedLock_.pending = false;
 
@@ -558,6 +576,23 @@ bool App::selectSource(int index)
 
 void App::startTracking()
 {
+    // The face sensor is independent of the subject tracker: either can be
+    // missing without the other, and neither may take the show down.
+    faceSensor_ = createFaceSensor();
+    if (faceSensor_)
+    {
+        std::string faceError;
+        if (!faceSensor_->start(faceError))
+        {
+            ATEMFX_LOG_ERROR("Face sensor: %s", faceError.empty() ? "unavailable" : faceError.c_str());
+            faceSensor_.reset();
+        }
+    }
+    else
+    {
+        ATEMFX_LOG_INFO("Face sensor: unavailable on this platform");
+    }
+
     tracker_ = createSubjectTracker();
     if (!tracker_)
     {
@@ -806,8 +841,21 @@ void App::serviceWebcam()
     {
         webcamStats_ = webcam_->stats();
 
-        if (webcamStats_.state == VirtualCameraState::Failed)
+        if (webcamStats_.state == VirtualCameraState::Sending)
         {
+            // A live stream clears a previous panel fault and the --webcam
+            // sticky failure: the run did get a camera after all.
+            webcamFailed_ = false;
+            if (webcamStatus_ == "Webcam starting")
+            {
+                webcamStatus_ = "Sending as OBS Virtual Camera";
+            }
+        }
+        else if (webcamStats_.state == VirtualCameraState::Failed)
+        {
+            // Collapse the worker before the UI draws this frame, but keep the
+            // error string and sticky fault so OUTPUT can show FAIL — the panel
+            // never observes VirtualCameraState::Failed itself.
             webcamStatus_ = webcam_->error();
             webcamFailed_ = true;
             ATEMFX_LOG_WARN("Webcam: %s", webcamStatus_.c_str());
@@ -820,7 +868,10 @@ void App::serviceWebcam()
             // before: a frame may still be on its way to it.
             webcam_.reset();
             webcamStats_ = {VirtualCameraState::Stopped, 0, 0};
-            webcamStatus_ = "Webcam stopped";
+            if (!webcamFailed_)
+            {
+                webcamStatus_ = "Webcam stopped";
+            }
         }
     }
 
@@ -839,6 +890,9 @@ void App::serviceWebcam()
         requestWebcamStart_ = false;
         if (!webcam_)
         {
+            // Fresh attempt: clear the last fault so FAIL does not linger over
+            // a Starting tally, then set it again if create/connect fails.
+            webcamFailed_ = false;
             std::string error;
             webcam_ = createVirtualCameraOutput(*device_, error);
             if (webcam_)
@@ -1499,6 +1553,7 @@ void App::updateEffectContext()
 {
     effectContext_.shaders    = &device_->shaders();
     effectContext_.fullscreen = &device_->fullscreenPass();
+    effectContext_.sprites    = &device_->spritePass();
     effectContext_.targets    = &device_->targets();
     effectContext_.width      = kProcessingWidth;
     effectContext_.height     = kProcessingHeight;
@@ -1529,6 +1584,36 @@ void App::updateEffectContext()
 
     tracking.available = tracker_ != nullptr;
     effectContext_.tracking       = tracking;
+
+    // Faces, the same way: capture space to canvas, fitted-out faces dropped.
+    // The sensor only runs while an enabled node reads faces.
+    FacesSnapshot faces;
+    if (faceSensor_)
+    {
+        faceSensor_->setActive((chain_.enabledInputs() & kEffectInputFaces) != 0);
+        if (faceSensor_->latest(faces) && source_)
+        {
+            const SourceMapping mapping = source_->mapping();
+            uint32_t            kept    = 0;
+            for (uint32_t i = 0; i < faces.count && i < kMaxFaces; ++i)
+            {
+                FaceObservation face = faces.faces[i];
+                mapSourceToCanvas(mapping, face.centerX, face.centerY, face.width, face.height);
+                if (face.centerX < 0.0f || face.centerX > 1.0f || face.centerY < 0.0f ||
+                    face.centerY > 1.0f)
+                {
+                    continue;
+                }
+                faces.faces[kept++] = face;
+            }
+            faces.count = kept;
+        }
+        else
+        {
+            faces = FacesSnapshot{};
+        }
+    }
+    effectContext_.faces = faces;
     effectContext_.framing        = {};
     effectContext_.framingActive  = false;
     effectContext_.outputAspect   = 16.0f / 9.0f;
@@ -1776,6 +1861,7 @@ bool App::renderFrame()
         state.programProgress     = programOutput_.transitioning()
             ? programOutput_.progress()
             : programTransition_.progress();
+        state.programSafetyHold   = programOutput_.safetyHold();
         state.operationLocked     = &operationLocked_;
         state.inputHealthy        = inputHealthy;
         state.outputWidth         = outputSurface_ ? outputSurface_->width() : 0;
@@ -1784,6 +1870,7 @@ bool App::renderFrame()
         state.webcamSupported     = webcamSupported_;
         state.webcamStats         = webcamStats_;
         state.webcamStatus        = &webcamStatus_;
+        state.webcamFault         = webcamFailed_;
         state.requestWebcamStart  = &requestWebcamStart_;
         state.requestWebcamStop   = &requestWebcamStop_;
         state.recorderSupported   = recorderSupported_;
@@ -1980,6 +2067,11 @@ void App::shutdown()
     {
         tracker_->stop();
         tracker_.reset();
+    }
+    if (faceSensor_)
+    {
+        faceSensor_->stop();
+        faceSensor_.reset();
     }
 
     // Before the device: the surface holds a layer and a pipeline built by it.

@@ -25,5 +25,6 @@ std::unique_ptr<Effect> createCrtEffect();
 std::unique_ptr<Effect> createVhsEffect();
 std::unique_ptr<Effect> createMirrorEffect();
 std::unique_ptr<Effect> createAutoFrameEffect();
+std::unique_ptr<Effect> createFaceMosaicEffect();
 
 } // namespace atemfx

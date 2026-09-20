@@ -23,6 +23,8 @@ constexpr const char* kBackendSubdirectory = "metal";
 constexpr const char* kCommonSourceFile    = "common.metal";
 constexpr const char* kVertexFunctionName  = "fullscreen_vertex";
 constexpr const char* kFragmentFunctionName = "fragment_main";
+constexpr const char* kSpriteVertexName     = "sprite_vertex";
+constexpr const char* kSpriteFragmentName   = "sprite_fragment";
 
 std::string describe(NSError* error)
 {
@@ -142,6 +144,7 @@ void MetalShaderLibrary::shutdown()
 
 bool MetalShaderLibrary::build(const std::string&                   name,
                                __strong id<MTLRenderPipelineState>& pipeline,
+                               bool&                                sprite,
                                std::string&                         error)
 {
     std::string fragmentSource;
@@ -164,11 +167,19 @@ bool MetalShaderLibrary::build(const std::string&                   name,
         return false;
     }
 
-    id<MTLFunction> vertexFunction   = [library newFunctionWithName:@(kVertexFunctionName)];
-    id<MTLFunction> fragmentFunction = [library newFunctionWithName:@(kFragmentFunctionName)];
+    // The fragment function's name says which primitive the shader is for.
+    // common.metal is prepended to every file, so sprite_vertex is always
+    // there; only a sprite shader defines sprite_fragment.
+    id<MTLFunction> spriteFragment = [library newFunctionWithName:@(kSpriteFragmentName)];
+    sprite = spriteFragment != nil;
+
+    id<MTLFunction> vertexFunction =
+        [library newFunctionWithName:@(sprite ? kSpriteVertexName : kVertexFunctionName)];
+    id<MTLFunction> fragmentFunction =
+        sprite ? spriteFragment : [library newFunctionWithName:@(kFragmentFunctionName)];
     if (!vertexFunction || !fragmentFunction)
     {
-        error = name + ".metal: missing " + kVertexFunctionName + " or " + kFragmentFunctionName;
+        error = name + ".metal: missing " + kFragmentFunctionName + " or " + kSpriteFragmentName;
         return false;
     }
 
@@ -176,6 +187,21 @@ bool MetalShaderLibrary::build(const std::string&                   name,
     descriptor.vertexFunction               = vertexFunction;
     descriptor.fragmentFunction             = fragmentFunction;
     descriptor.colorAttachments[0].pixelFormat = format_;
+
+    if (sprite)
+    {
+        // Premultiplied source over: the fragment returns colour already
+        // multiplied by its own coverage, so a feathered edge fades to what
+        // was underneath instead of to black.
+        MTLRenderPipelineColorAttachmentDescriptor* colour = descriptor.colorAttachments[0];
+        colour.blendingEnabled             = YES;
+        colour.rgbBlendOperation           = MTLBlendOperationAdd;
+        colour.alphaBlendOperation         = MTLBlendOperationAdd;
+        colour.sourceRGBBlendFactor        = MTLBlendFactorOne;
+        colour.sourceAlphaBlendFactor      = MTLBlendFactorOne;
+        colour.destinationRGBBlendFactor   = MTLBlendFactorOneMinusSourceAlpha;
+        colour.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    }
 
     NSError* pipelineError = nil;
     pipeline = [device_ newRenderPipelineStateWithDescriptor:descriptor error:&pipelineError];
@@ -201,7 +227,7 @@ ShaderHandle MetalShaderLibrary::shader(const std::string& name, std::string* er
     entry->name = name;
 
     std::string localError;
-    if (!build(name, entry->pipeline, localError))
+    if (!build(name, entry->pipeline, entry->sprite, localError))
     {
         ATEMFX_LOG_ERROR("%s", localError.c_str());
         if (error)
@@ -236,8 +262,9 @@ bool MetalShaderLibrary::reloadAll(std::string& error)
     for (auto& [name, entry] : shaders_)
     {
         __strong id<MTLRenderPipelineState> pipeline = nil;
+        bool                       sprite = false;
         std::string                localError;
-        if (!build(name, pipeline, localError))
+        if (!build(name, pipeline, sprite, localError))
         {
             allSucceeded = false;
             if (firstError.empty())
@@ -248,6 +275,7 @@ bool MetalShaderLibrary::reloadAll(std::string& error)
             continue;  // keep the previous, working pipeline
         }
         entry->pipeline = pipeline;
+        entry->sprite   = sprite;
     }
 
     error = firstError;
@@ -421,7 +449,7 @@ void MetalFullscreenPass::draw(GpuTexture&            target,
                                const GpuTexture*      history)
 {
     const MetalShader* program = static_cast<const MetalShader*>(shader);
-    if (!owner_ || !program || !program->pipeline || !target.valid())
+    if (!owner_ || !program || !program->pipeline || program->sprite || !target.valid())
     {
         return;
     }
@@ -464,6 +492,92 @@ void MetalFullscreenPass::draw(GpuTexture&            target,
                              atIndex:0];
 
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+    [encoder endEncoding];
+}
+
+// ---------------------------------------------------------------------------
+// MetalSpritePass
+// ---------------------------------------------------------------------------
+
+bool MetalSpritePass::initialize(MetalDevice& device, std::string& error)
+{
+    owner_ = &device;
+
+    MTLSamplerDescriptor* descriptor = [[MTLSamplerDescriptor alloc] init];
+    descriptor.sAddressMode = MTLSamplerAddressModeClampToEdge;
+    descriptor.tAddressMode = MTLSamplerAddressModeClampToEdge;
+    descriptor.rAddressMode = MTLSamplerAddressModeClampToEdge;
+
+    descriptor.minFilter = MTLSamplerMinMagFilterNearest;
+    descriptor.magFilter = MTLSamplerMinMagFilterNearest;
+    pointSampler_        = [device.metal() newSamplerStateWithDescriptor:descriptor];
+
+    descriptor.minFilter = MTLSamplerMinMagFilterLinear;
+    descriptor.magFilter = MTLSamplerMinMagFilterLinear;
+    linearSampler_       = [device.metal() newSamplerStateWithDescriptor:descriptor];
+
+    if (!pointSampler_ || !linearSampler_)
+    {
+        error = "Failed to create the Metal sprite samplers";
+        return false;
+    }
+
+    return true;
+}
+
+void MetalSpritePass::shutdown()
+{
+    pointSampler_  = nil;
+    linearSampler_ = nil;
+    owner_         = nullptr;
+}
+
+void MetalSpritePass::draw(GpuTexture&            target,
+                           ShaderHandle           shader,
+                           const GpuTexture&      source,
+                           const EffectConstants& constants,
+                           const SpriteInstance*  instances,
+                           std::size_t            count,
+                           SamplerFilter          filter)
+{
+    const MetalShader* program = static_cast<const MetalShader*>(shader);
+    if (!owner_ || !program || !program->pipeline || !program->sprite || !target.valid() ||
+        !source.valid() || &source == &target || !instances || count == 0)
+    {
+        return;
+    }
+
+    id<MTLCommandBuffer> commands = owner_->processingCommandBuffer();
+    if (!commands)
+    {
+        return;
+    }
+
+    count = std::min(count, kMaxSpriteInstances);
+
+    MetalTexture&       destination = static_cast<MetalTexture&>(target);
+    const MetalTexture& input       = static_cast<const MetalTexture&>(source);
+
+    MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    // Sprites cover part of the frame; the rest is whatever the target holds.
+    pass.colorAttachments[0].texture     = destination.metal();
+    pass.colorAttachments[0].loadAction  = MTLLoadActionLoad;
+    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+
+    id<MTLRenderCommandEncoder> encoder = [commands renderCommandEncoderWithDescriptor:pass];
+    [encoder setRenderPipelineState:program->pipeline];
+
+    [encoder setVertexBytes:&constants length:sizeof(constants) atIndex:0];
+    [encoder setVertexBytes:instances length:sizeof(SpriteInstance) * count atIndex:1];
+    [encoder setFragmentBytes:&constants length:sizeof(constants) atIndex:0];
+    [encoder setFragmentTexture:input.metal() atIndex:0];
+    [encoder setFragmentSamplerState:(filter == SamplerFilter::Point ? pointSampler_ : linearSampler_)
+                             atIndex:0];
+
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                vertexStart:0
+                vertexCount:6
+              instanceCount:count];
     [encoder endEncoding];
 }
 
@@ -763,6 +877,12 @@ bool MetalDevice::initialize(Window* window, uint32_t processingWidth, uint32_t 
         return false;
     }
 
+    if (!spritePass_.initialize(*this, error))
+    {
+        ATEMFX_LOG_ERROR("Sprite pass: %s", error.c_str());
+        return false;
+    }
+
     ATEMFX_LOG_INFO("Metal device ready: %s (%s)",
                     adapterName_.c_str(),
                     headless_ ? "headless" : "windowed");
@@ -771,6 +891,7 @@ bool MetalDevice::initialize(Window* window, uint32_t processingWidth, uint32_t 
 
 void MetalDevice::shutdown()
 {
+    spritePass_.shutdown();
     fullscreenPass_.shutdown();
     targets_.release();
     shaders_.shutdown();

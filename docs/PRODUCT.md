@@ -34,7 +34,7 @@ A GPU engine with two backends (Metal on macOS, Direct3D 11 on Windows) that:
 - takes its picture from a GPU test pattern (colour bars, plasma, grid, and a
   static LED-mapping chart) or from any camera the operating system reports,
   both behind `VideoSource`;
-- runs a linear chain of eleven built-in effects — `auto_frame`,
+- runs a linear chain of twelve built-in effects — `auto_frame`, `face_mosaic`,
   `passthrough`, `rgb_split`, `pixelate`, `fm_raster`, `subpixel`, `shutter`,
   `frame_delay`, `mirror`, `vhs`, `crt` — each with an HLSL and an MSL shader,
   and with optional loop automation on every parameter;

@@ -5,6 +5,7 @@
 
 #include "effects/EffectParameters.h"
 #include "gpu/Rhi.h"
+#include "tracking/FacesSnapshot.h"
 #include "tracking/TrackingSnapshot.h"
 #include "tracking/framing.h"
 
@@ -16,6 +17,16 @@ enum class EffectRole
     Framing,
 };
 
+// Control-plane inputs an effect reads from EffectContext beyond the picture.
+// App runs a sensor only while some enabled node asks for it, so an effect
+// nobody switched on costs no CPU. Bit flags; new sensors add a bit, never an
+// effect name in App.
+enum EffectInput : uint32_t
+{
+    kEffectInputNone  = 0,
+    kEffectInputFaces = 1u << 0,
+};
+
 // Everything an effect is allowed to see, snapshotted once per frame.
 //
 // Effects never reach for global state and never name a graphics API. When
@@ -25,6 +36,7 @@ struct EffectContext
 {
     ShaderLibrary*  shaders    = nullptr;
     FullscreenPass* fullscreen = nullptr;
+    SpritePass*     sprites    = nullptr;
     TargetPool*     targets    = nullptr;
 
     uint32_t width  = 0;
@@ -39,6 +51,11 @@ struct EffectContext
     // never read mid-frame from shared state. Default-constructed means
     // nobody is tracking, which effects must treat as a normal state.
     TrackingSnapshot tracking;
+
+    // Every face in shot, with persistent ids, in canvas coordinates of the
+    // chain's input (before any framing crop). Filled by App the same way as
+    // `tracking`; empty unless a node asked for kEffectInputFaces.
+    FacesSnapshot faces;
 
     // Where Auto Frame is looking, and the aspect the wall should receive.
     // App clears framingActive each frame; the effect sets it if it ran.
@@ -77,6 +94,9 @@ public:
     // Clean output retains geometric framing without naming individual
     // effects in the chain or changing their saved enabled state.
     virtual EffectRole role() const { return EffectRole::Visual; }
+
+    // EffectInput bits this node reads while enabled.
+    virtual uint32_t inputs() const { return kEffectInputNone; }
 
     const EffectDescriptor& descriptor() const { return descriptor_; }
 

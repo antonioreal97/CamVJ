@@ -35,8 +35,9 @@ void drawStatsPanel(UiFrameState& state)
     if (state.sourceDisconnected || health.signal == SourceSignal::Stale)
     {
         bool flash = (static_cast<int>(ImGui::GetTime() * 4.0) % 2) == 0;
-        ImGui::TextColored(flash ? theme::splitMagenta : theme::keyLight, "CÂMERA CONGELADA");
-        ImGui::TextColored(theme::splitMagenta, state.sourceDisconnected ? "Disconnected" : "Stale");
+        ImGui::TextColored(flash ? theme::splitMagenta : theme::keyLight, "CAMERA HOLDING");
+        ImGui::TextColored(theme::splitMagenta,
+                           state.sourceDisconnected ? "Disconnected" : "No signal");
     }
     else
     {
@@ -47,7 +48,7 @@ void drawStatsPanel(UiFrameState& state)
             case SourceSignal::Generated: signal = "Generated"; break;
             case SourceSignal::Waiting:   signal = "Waiting"; break;
             case SourceSignal::Live:      signal = "Live"; colour = theme::splitCyan; break;
-            case SourceSignal::Stale:     signal = "Stale"; colour = theme::splitMagenta; break;
+            case SourceSignal::Stale:     signal = "No signal"; colour = theme::splitMagenta; break;
         }
         ImGui::TextColored(colour, "%s", signal);
     }

@@ -100,7 +100,13 @@ TestPatternSource/câmera → EffectChain → Overlays → ProgramOutput → Pre
 ```
 
 Efeitos: `passthrough`, `rgb_split`, `pixelate`, `fm_raster`, `subpixel`,
-`shutter`, `frame_delay`, `vhs`, `crt`, `mirror` e `auto_frame` (HLSL + MSL).
+`shutter`, `frame_delay`, `vhs`, `crt`, `mirror`, `auto_frame` e
+`face_mosaic` (HLSL + MSL).
+
+**Face Mosaic** (fase 1, macOS): detecta os rostos do público com Vision e
+espalha cópias de cada rosto pelo quadro. Fica desligado por padrão, logo
+depois do Auto Frame; o detector de rostos só roda enquanto o efeito está
+ligado. No Windows ainda não há detector, e o efeito mostra só o fundo.
 Processamento sempre em 1920×1080, independente do tamanho da janela.
 Orçamento: 16,68 ms/frame (59,94 fps). A taxa não é travada no display.
 
