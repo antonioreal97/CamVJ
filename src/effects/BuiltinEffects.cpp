@@ -17,6 +17,7 @@ void registerBuiltinEffects(EffectRegistry& registry)
     registry.add(&createCrtEffect);
     registry.add(&createMirrorEffect);
     registry.add(&createAutoFrameEffect);
+    registry.add(&createFaceMosaicEffect);
 }
 
 } // namespace atemfx

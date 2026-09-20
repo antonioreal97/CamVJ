@@ -11,7 +11,8 @@
 //
 // Keeping it this small is what makes a second backend tractable. Resist
 // widening it; an effect that needs more than a fullscreen pass should say so
-// and get a design, not a new RHI entry point.
+// and get a design, not a new RHI entry point. The one addition so far,
+// SpritePass, went through that design (docs/EFFECT_SYSTEM.md, Sprites).
 
 #include <cstddef>
 #include <cstdint>
@@ -83,6 +84,45 @@ public:
                       const EffectConstants& constants,
                       SamplerFilter          filter,
                       const GpuTexture*      history = nullptr) = 0;
+};
+
+// One textured quad of a sprite batch, in normalized canvas UV, origin top
+// left. 48 bytes, three float4 rows, mirrored by SpriteInstance in
+// shaders/metal/common.metal and by the SpriteCB rows in shaders/hlsl/sprite.hlsl.
+struct SpriteInstance
+{
+    float destination[4] = {0.5f, 0.5f, 0.0f, 0.0f};  // centre x, y; half extent x, y
+    float source[4]      = {0.5f, 0.5f, 0.0f, 0.0f};  // centre u, v; half extent u, v
+    float style[4]       = {0.0f, 1.0f, 0.0f, 0.0f};  // rotation (rad), opacity, free, free
+};
+
+static_assert(sizeof(SpriteInstance) == 48, "SpriteInstance must match the shader layout");
+
+// 64 x 48 bytes stays under Metal's 4 KB inline-bytes limit and under D3D11's
+// constant-buffer register budget, so neither backend needs a GPU buffer that
+// could be written while the previous frame still reads it.
+inline constexpr std::size_t kMaxSpriteInstances = 64;
+
+// The second drawing primitive: up to kMaxSpriteInstances quads, one draw,
+// blended (premultiplied alpha, source over) onto whatever `target` already
+// holds. It exists because a fullscreen pass per quad costs a whole 1080p
+// frame of bandwidth for a few thousand pixels — see docs/EFFECT_SYSTEM.md.
+//
+// `shader` must be a sprite shader: its fragment function is named
+// sprite_fragment (MSL) or it reads SpriteVSOutput (HLSL). `source` must not
+// be `target`. Like FullscreenPass, it leaves nothing bound read-and-write.
+class SpritePass
+{
+public:
+    virtual ~SpritePass() = default;
+
+    virtual void draw(GpuTexture&            target,
+                      ShaderHandle           shader,
+                      const GpuTexture&      source,
+                      const EffectConstants& constants,
+                      const SpriteInstance*  instances,
+                      std::size_t            count,
+                      SamplerFilter          filter) = 0;
 };
 
 // Owns every off-screen target. Two scratch targets carry the chain's
@@ -177,6 +217,7 @@ public:
 
     virtual ShaderLibrary&  shaders()        = 0;
     virtual FullscreenPass& fullscreenPass() = 0;
+    virtual SpritePass&     spritePass()     = 0;
     virtual TargetPool&     targets()        = 0;
 
     virtual float lastGpuMilliseconds() const = 0;

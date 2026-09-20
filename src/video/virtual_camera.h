@@ -11,6 +11,21 @@ class GpuTexture;
 
 enum class VirtualCameraState { Starting, Sending, Stopping, Stopped, Failed };
 
+// Panel tally for the WEBCAM group label. Failed is collapsed to Stopped in
+// App before draw, so `fault` carries the sticky error the UI still needs.
+inline const char* virtualCameraTallyLabel(VirtualCameraState state, bool fault) noexcept
+{
+    switch (state)
+    {
+    case VirtualCameraState::Starting: return "START";
+    case VirtualCameraState::Sending:  return "LIVE";
+    case VirtualCameraState::Stopping: return "STOP";
+    case VirtualCameraState::Failed:   return "FAIL";
+    case VirtualCameraState::Stopped:  return fault ? "FAIL" : "OFF";
+    }
+    return "OFF";
+}
+
 struct VirtualCameraStats
 {
     VirtualCameraState state = VirtualCameraState::Starting;

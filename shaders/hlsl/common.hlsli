@@ -36,4 +36,15 @@ float2 aspectScale()
     return float2(1.0, uResolution.x / uResolution.y);
 }
 
+// Sprite shaders (SpritePass): the pixel shader entry point is
+// sprite_fragment and it reads what sprite.hlsl writes. Mirrors
+// SpriteVSOutput in shaders/metal/common.metal.
+struct SpriteVSOutput
+{
+    float4 position : SV_Position;
+    float2 uv       : TEXCOORD0;  // source UV
+    float2 local    : TEXCOORD1;  // -1..1 across the quad, for masks
+    float  opacity  : TEXCOORD2;
+};
+
 #endif // ATEMFX_COMMON_HLSLI

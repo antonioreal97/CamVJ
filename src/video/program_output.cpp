@@ -239,6 +239,14 @@ GpuTexture* ProgramOutput::render(EffectContext& context, GpuTexture* frame,
         blackReady_ = true;
     }
 
+    // Leaving Freeze is the operator saying the hold is over — whether they
+    // pressed FX, Clean or Black. Clearing here keeps intentional Freeze
+    // (safetyHold_ never set) distinct from a safety latch after recovery.
+    if (mode != ProgramMode::Freeze)
+    {
+        safetyHold_ = false;
+    }
+
     const ShaderHandle mixShader = context.shaders->shader("crossfade");
     retarget(context, sourceFor(mode), blit, constants, mixShader != nullptr);
     dissolve_.advance(context.deltaTime);
@@ -279,6 +287,7 @@ GpuTexture* ProgramOutput::render(EffectContext& context, GpuTexture* frame,
             // picture has to be on the wall this frame, not in 0.35 s.
             mode = ProgramMode::Freeze;
             cutTo(ProgramSource::Freeze);
+            safetyHold_ = true;
         }
     }
 

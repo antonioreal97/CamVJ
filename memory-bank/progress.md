@@ -86,6 +86,23 @@ Verificado: build limpo, `ctest` 3/3 (incluindo `source_mapping`), `--check-shad
 **Não verificado:** Pick com câmera ao vivo (duas pessoas, drag, lock perdido)
 e qualquer coisa no Windows.
 
+## Extensão solicitada: Face Mosaic (fase 1)
+
+Pedido 2026-09-19. Rostos do público viram tiles independentes espalhados
+pelo quadro. Sem abrir milestone: feedback é FX-008 (M2), presets são M3.
+
+- `SpritePass` em `src/gpu/Rhi.h` + Metal + D3D11: até 64 quads num draw,
+  instâncias inline (sem buffer que o próximo frame sobrescreva).
+- `FaceSensor` (Vision, 15 Hz, thread própria, ocioso sem efeito pedindo) e
+  `FaceTrackManager` (IoU + distância, 2 hits para publicar, expira em 0,5 s).
+- `face_mosaic`: fundo (nível ajustável) + tiles com borda suave e cantos
+  arredondados; posição aleatória estável por seed; sliders retargetam tiles
+  já no ar; 9:16 posiciona só dentro da janela retrato.
+- CTest `face_tracks` e `face_tiles`.
+
+Verificado headless no M4. **Pendente:** câmera ao vivo com público e
+qualquer coisa no Windows.
+
 ## Extensão solicitada: segurança da imagem
 
 Implementação em validação, sem abrir novo milestone.
@@ -288,13 +305,15 @@ Usar isso. Não marcar FX-007/008/009 como feitos.
 - `FrameTiming.h` ainda comenta “4 seconds at 60 fps” no tamanho do ring
   (240 amostras) — comentário, não lock.
 - Sem GPU no sandbox → headless falha com “No Metal device”. Não é regressão
-  do engine.
+  do engine. Cloud agent Linux não configura o projeto (só Win/macOS).
 - CI macOS: `.github/workflows/ci.yml` (self-hosted ARM64 + GPU). Sem
   runner registrado o job fica em fila. Windows CI e CD ainda não.
 - Identidade CamVJ aplicada na UI ImGui (`src/ui/Theme.*`); SVGs em `assets/files/`.
-- Enums de efeito (`Mirror.mode`) ainda são int slider.
 - Câmera USB (FX30 UVC) plugada com o app aberto não aparecia até o restart;
   hotplug AVFoundation + formato 1080p explícito (2026-09-08).
+- **Aceitação de evento macOS ainda aberta:** UI ao vivo, FX30 + Auto Frame,
+  display → processador LED, DMG unsigned em Mac limpo, webcam em app de
+  chamada. Análise: store `internal/macos-event-readiness.md`.
 
 ## Gate
 
@@ -317,3 +336,22 @@ O gate de regressão de 2026-09-19 no Apple M4 passou: CTest 11/11,
 `--check-shaders` 16/16 e `--headless --frames 200` (1,045 ms de processamento
 GPU com a pilha vazia). O teste da biblioteca agora cobre nomes Unicode.
 A validação nativa do picker e do upload D3D11 no Windows segue pendente.
+
+## 2026-09-15 — polish de operador (macOS event readiness)
+
+Sem Metal neste ambiente: mudanças só de UX/docs/pacote + status de segurança,
+com CTest `program_output` compilado/rodado à mão no Linux (378 checks).
+
+- `Parameter::makeChoice` em Fit da câmera, Mirror `mode` e Frame Delay
+  `blend` (combos nomeados; packing Int inalterado).
+- Painel OUTPUT: tooltip/status da webcam citam **OBS Virtual Camera**.
+- `scripts/package_macos.sh` inclui `READ_ME_FIRST.txt` no DMG.
+- **Input health visível no SOURCE** (banner NO SIGNAL / DISCONNECTED) e
+  `CameraSource::status()` fala Stale em vez de `WxH · frames`.
+- **`ProgramOutput::safetyHold()`**: Freeze de perda ≠ Freeze do operador;
+  caption `HOLD · INPUT`, header, tooltip, tag HOLD no preview.
+- Stats: `CAMERA HOLDING` (EN), sem jargão Stale na faixa.
+- **Webcam OUTPUT:** tallies `START`/`LIVE`/`STOP`/`FAIL`/`OFF`; fault sticky
+  após Failed→Stopped; sem `"Working"`; CTest `virtual_camera_status`.
+- Docs: `EFFECT_SYSTEM.md`, `BUILD.md`, `RUNTIME.md` § Input loss,
+  `VIRTUAL_CAMERA.md`. Memory-bank atualizado.

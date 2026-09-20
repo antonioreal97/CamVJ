@@ -60,6 +60,9 @@ public:
     std::size_t size() const { return effects_.size(); }
     std::size_t enabledCount() const;
 
+    // Union of Effect::inputs() over the enabled nodes.
+    uint32_t enabledInputs() const;
+
     Effect&       at(std::size_t index) { return *effects_[index]; }
     const Effect& at(std::size_t index) const { return *effects_[index]; }
 

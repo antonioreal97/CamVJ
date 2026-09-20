@@ -5,7 +5,8 @@ namespace atemfx {
 
 namespace {
 
-// Reflects one half of the frame onto the other. Mode is a named choice.
+// Reflects one half of the frame onto the other. Mode uses makeChoice so the
+// generic UI draws a combo — no bespoke panel, and no M3 presets required.
 class MirrorEffect final : public ShaderEffect
 {
 public:

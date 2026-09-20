@@ -129,6 +129,11 @@ public:
     bool  transitioning() const { return dissolve_.active(); }
     float progress() const { return dissolve_.amount(); }
 
+    // True after input loss cut PROGRAM to Freeze, until the operator leaves
+    // Freeze. Survives a camera that comes back so FX cannot be mistaken for
+    // a stuck button — recovery is still an explicit mode change.
+    bool safetyHold() const { return safetyHold_; }
+
     void  setDuration(float seconds) { dissolve_.setDuration(seconds); }
 
 private:
@@ -157,6 +162,7 @@ private:
 
     bool haveFrame_        = false;
     bool blackReady_       = false;
+    bool safetyHold_       = false;
     FramingRect heldFraming_;
     bool heldFramingActive_ = false;
     float heldAspect_       = 16.0f / 9.0f;

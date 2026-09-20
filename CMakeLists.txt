@@ -144,6 +144,9 @@ set(ATEMFX_SOURCES
     src/effects/EffectRegistry.cpp
     src/effects/EffectRegistry.h
     src/effects/AutoFrameEffect.cpp
+    src/effects/FaceMosaicEffect.cpp
+    src/effects/face_tiles.cpp
+    src/effects/face_tiles.h
     src/effects/MirrorEffect.cpp
     src/effects/PassthroughEffect.cpp
     src/effects/PixelateEffect.cpp
@@ -156,6 +159,11 @@ set(ATEMFX_SOURCES
     src/effects/RgbSplitEffect.cpp
     src/effects/ShaderEffect.cpp
     src/effects/ShaderEffect.h
+
+    src/tracking/face_tracks.cpp
+    src/tracking/face_tracks.h
+    src/tracking/FaceSensor.h
+    src/tracking/FacesSnapshot.h
 
     src/presets/boot_state.cpp
     src/presets/boot_state.h
@@ -214,7 +222,8 @@ if(ATEMFX_BACKEND STREQUAL "d3d11")
         src/overlays/win32/overlay_platform_win.cpp
         src/video/virtual_camera_stub.cpp
         src/video/program_recorder_stub.cpp
-        src/tracking/tracker_stub.cpp)
+        src/tracking/tracker_stub.cpp
+        src/tracking/face_sensor_stub.cpp)
 else()
     list(APPEND ATEMFX_SOURCES
         src/platform/mac/MacWindow.mm
@@ -226,7 +235,8 @@ else()
         src/overlays/mac/overlay_platform_mac.mm
         src/video/mac/virtual_camera_mac.mm
         src/video/mac/program_recorder_mac.mm
-        src/tracking/mac/VisionTracker.mm)
+        src/tracking/mac/VisionTracker.mm
+        src/tracking/mac/VisionFaceSensor.mm)
 endif()
 
 add_executable(atem_fx ${ATEMFX_SOURCES})
@@ -283,6 +293,7 @@ else()
         src/video/mac/virtual_camera_mac.mm
         src/video/mac/program_recorder_mac.mm
         src/tracking/mac/VisionTracker.mm
+        src/tracking/mac/VisionFaceSensor.mm
         "${imgui_SOURCE_DIR}/backends/imgui_impl_osx.mm"
         "${imgui_SOURCE_DIR}/backends/imgui_impl_metal.mm")
     set_source_files_properties(${ATEMFX_ARC_SOURCES} PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
@@ -416,6 +427,26 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME source_mapping COMMAND source_mapping_test)
 
+    # Face identities and the tiles built on them: the Face Mosaic's
+    # judgement, testable with no camera and no GPU.
+    add_executable(face_tracks_test
+        tests/face_tracks_test.cpp
+        src/tracking/face_tracks.cpp)
+    target_include_directories(face_tracks_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    add_executable(face_tiles_test
+        tests/face_tiles_test.cpp
+        src/effects/face_tiles.cpp)
+    target_include_directories(face_tiles_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    foreach(face_test face_tracks_test face_tiles_test)
+        if(MSVC)
+            target_compile_options(${face_test} PRIVATE /W4 /permissive- /utf-8)
+        else()
+            target_compile_options(${face_test} PRIVATE -Wall -Wextra)
+        endif()
+    endforeach()
+    add_test(NAME face_tracks COMMAND face_tracks_test)
+    add_test(NAME face_tiles COMMAND face_tiles_test)
+
     add_executable(display_routing_test
         tests/display_routing_test.cpp
         src/platform/display_routing.cpp)
@@ -437,7 +468,9 @@ if(BUILD_TESTING)
         src/effects/EffectRegistry.cpp
         src/effects/parameter_automation.cpp
         src/core/Log.cpp)
-    foreach(target source_health_test program_output_test)
+    add_executable(virtual_camera_status_test
+        tests/virtual_camera_status_test.cpp)
+    foreach(target source_health_test program_output_test virtual_camera_status_test)
         target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
         if(MSVC)
             target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
@@ -447,6 +480,7 @@ if(BUILD_TESTING)
     endforeach()
     add_test(NAME source_health COMMAND source_health_test)
     add_test(NAME program_output COMMAND program_output_test)
+    add_test(NAME virtual_camera_status COMMAND virtual_camera_status_test)
 
     # File naming and the disk arithmetic behind the REC panel. The encoder
     # itself is verified by recording, not here: see docs/RECORDING.md.

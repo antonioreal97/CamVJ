@@ -351,7 +351,11 @@ An input is healthy when it is `Live` or `Generated` and the device has not
 disappeared (`SourceHealth`, `src/video/source_health.h`; `Stale` is 0.5 s
 without a new frame). When a live mode meets an unhealthy input and a valid
 image exists, `ProgramOutput` latches `Freeze` and reports the mode change
-back to `App`.
+back to `App`. `safetyHold()` stays true until the operator leaves Freeze, so
+the UI can tell a safety cut from an intentional hold: PROGRAM caption
+`HOLD · INPUT`, header match, Freeze tooltip with recovery steps, and a
+flashing SOURCE banner (stats alone are not enough — PARAMETERS replaces
+them). An operator Freeze never sets that flag.
 
 Three rules follow from that latch:
 
@@ -384,19 +388,25 @@ show opens on black before anything goes live.
 
 ```text
 auto_frame    enabled
+face_mosaic   disabled
 passthrough   disabled
 rgb_split     disabled
 pixelate      disabled
 fm_raster     disabled
 subpixel      disabled
 shutter       disabled
+frame_delay   disabled
 mirror        disabled
 vhs           disabled
 crt           disabled
 ```
 
+`face_mosaic` sits right after `auto_frame` so the tiles are cut from the
+framed picture and every look after it treats the mosaic as one image. The
+face sensor runs only while it is enabled.
+
 `--enable a,b,c` does not change which nodes exist. It changes which of those
-ten start enabled. Unknown ids in the list simply leave that node off.
+twelve start enabled. Unknown ids in the list simply leave that node off.
 
 ---
 
@@ -571,7 +581,8 @@ src/video/mac/CameraCaptureAVF.mm virtual_camera_mac.mm
 src/video/win32/CameraCaptureMF.cpp
 src/tracking/Tracker.h TrackingSnapshot.h framing.h/.cpp tracker_stub.cpp
 src/tracking/source_mapping.h/.cpp
-src/tracking/mac/VisionTracker.mm
+src/tracking/FaceSensor.h FacesSnapshot.h face_tracks.h/.cpp face_sensor_stub.cpp
+src/tracking/mac/VisionTracker.mm VisionFaceSensor.mm
 src/effects/Effect.h EffectParameters.h EffectRegistry.h/.cpp
 src/effects/parameter_automation.h/.cpp
 src/effects/EffectChain.h/.cpp ShaderEffect.h/.cpp BuiltinEffects.h/.cpp
@@ -585,6 +596,7 @@ src/overlays/overlay_compositor.h/.cpp overlay_system.h/.cpp
 src/overlays/mac/overlay_platform_mac.mm
 src/overlays/win32/overlay_platform_win.cpp
 src/presets/scene_preset.h/.cpp preset_store.h/.cpp boot_state.h/.cpp
+src/effects/FaceMosaicEffect.cpp face_tiles.h/.cpp
 src/ui/UiLayer.h/.cpp Theme.h/.cpp Fonts.h/.cpp Panels.h
 src/ui/SourcePanel.cpp OutputPanel.cpp PresetsPanel.cpp OverlaysPanel.cpp
 src/ui/EffectsPanel.cpp PreviewPanel.cpp StatsPanel.cpp ParameterWidgets.cpp
