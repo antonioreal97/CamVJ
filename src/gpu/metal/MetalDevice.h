@@ -54,6 +54,10 @@ struct MetalShader
 {
     std::string                name;
     id<MTLRenderPipelineState> pipeline = nil;
+
+    // Built with sprite_vertex and blending, for SpritePass only. Each pass
+    // refuses the other kind rather than drawing garbage.
+    bool sprite = false;
 };
 
 class MetalShaderLibrary final : public ShaderLibrary
@@ -69,7 +73,8 @@ public:
 private:
     // __strong: a reference parameter to an Objective-C pointer defaults to
     // __autoreleasing under ARC, which does not bind to a strong member.
-    bool build(const std::string& name, __strong id<MTLRenderPipelineState>& pipeline, std::string& error);
+    bool build(const std::string& name, __strong id<MTLRenderPipelineState>& pipeline, bool& sprite,
+               std::string& error);
 
     id<MTLDevice>  device_ = nil;
     MTLPixelFormat format_ = MTLPixelFormatRGBA16Float;
@@ -134,6 +139,26 @@ private:
     id<MTLSamplerState> linearSampler_ = nil;
 };
 
+class MetalSpritePass final : public SpritePass
+{
+public:
+    bool initialize(MetalDevice& device, std::string& error);
+    void shutdown();
+
+    void draw(GpuTexture&            target,
+              ShaderHandle           shader,
+              const GpuTexture&      source,
+              const EffectConstants& constants,
+              const SpriteInstance*  instances,
+              std::size_t            count,
+              SamplerFilter          filter) override;
+
+private:
+    MetalDevice*        owner_         = nullptr;
+    id<MTLSamplerState> pointSampler_  = nil;
+    id<MTLSamplerState> linearSampler_ = nil;
+};
+
 // The program feed on a second display: its own CAMetalLayer, its own
 // pipeline — the drawable is BGRA8 while everything the engine processes is
 // RGBA16Float, so the shader library, which is compiled for the processing
@@ -182,6 +207,7 @@ public:
 
     ShaderLibrary&  shaders() override { return shaders_; }
     FullscreenPass& fullscreenPass() override { return fullscreenPass_; }
+    SpritePass&     spritePass() override { return spritePass_; }
     TargetPool&     targets() override { return targets_; }
 
     float lastGpuMilliseconds() const override;
@@ -219,6 +245,7 @@ private:
     MetalShaderLibrary   shaders_;
     MetalTargetPool      targets_;
     MetalFullscreenPass  fullscreenPass_;
+    MetalSpritePass      spritePass_;
 
     std::shared_ptr<TimingState> timing_ = std::make_shared<TimingState>();
 

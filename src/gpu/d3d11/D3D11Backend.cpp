@@ -25,6 +25,11 @@ constexpr const char* kCommonSourceFile    = "common.hlsli";
 constexpr DXGI_FORMAT kProcessingFormat    = DXGI_FORMAT_R16G16B16A16_FLOAT;
 constexpr DXGI_FORMAT kSwapChainFormat     = DXGI_FORMAT_R8G8B8A8_UNORM;
 
+// A pixel shader whose file contains this entry point is a sprite shader:
+// compiled from it instead of main, and drawn only by the sprite pass. The
+// MSL side uses the same function name for the same decision.
+constexpr const char* kSpriteEntryPoint = "sprite_fragment";
+
 std::string toUtf8(const wchar_t* wide)
 {
     if (!wide)
@@ -148,13 +153,14 @@ bool D3D11ShaderLibrary::initialize(ID3D11Device* device, std::string& error)
     }
 
     ATEMFX_LOG_INFO("HLSL shader directory: %s", directory_.string().c_str());
-    return compileVertexShader(error);
+    return compileVertexShader(error) && compileSpriteVertexShader(error);
 }
 
 void D3D11ShaderLibrary::shutdown()
 {
     shaders_.clear();
     vertexShader_.Reset();
+    spriteVertexShader_.Reset();
     device_ = nullptr;
 }
 
@@ -224,12 +230,43 @@ bool D3D11ShaderLibrary::compileVertexShader(std::string& error)
     return true;
 }
 
-bool D3D11ShaderLibrary::buildPixelShader(const std::string&         name,
-                                          ComPtr<ID3D11PixelShader>& shader,
-                                          std::string&               error)
+bool D3D11ShaderLibrary::compileSpriteVertexShader(std::string& error)
 {
     ComPtr<ID3DBlob> blob;
-    if (!compile(directory_ / (name + ".hlsl"), "main", "ps_5_0", blob, error))
+    if (!compile(directory_ / "sprite.hlsl", "main", "vs_5_0", blob, error))
+    {
+        return false;
+    }
+
+    ComPtr<ID3D11VertexShader> shader;
+    if (!ATEMFX_CHECK_HR(device_->CreateVertexShader(blob->GetBufferPointer(),
+                                                     blob->GetBufferSize(),
+                                                     nullptr,
+                                                     shader.GetAddressOf()),
+                         "CreateVertexShader(sprite)"))
+    {
+        error = "CreateVertexShader failed for sprite.hlsl";
+        return false;
+    }
+
+    spriteVertexShader_ = shader;
+    return true;
+}
+
+bool D3D11ShaderLibrary::buildPixelShader(const std::string&         name,
+                                          ComPtr<ID3D11PixelShader>& shader,
+                                          bool&                      sprite,
+                                          std::string&               error)
+{
+    const std::filesystem::path path = directory_ / (name + ".hlsl");
+
+    std::string source;
+    std::string readError;
+    sprite = readTextFile(path, source, readError) &&
+             source.find(kSpriteEntryPoint) != std::string::npos;
+
+    ComPtr<ID3DBlob> blob;
+    if (!compile(path, sprite ? kSpriteEntryPoint : "main", "ps_5_0", blob, error))
     {
         return false;
     }
@@ -260,7 +297,7 @@ ShaderHandle D3D11ShaderLibrary::shader(const std::string& name, std::string* er
     entry->name = name;
 
     std::string localError;
-    if (!buildPixelShader(name, entry->pixelShader, localError))
+    if (!buildPixelShader(name, entry->pixelShader, entry->sprite, localError))
     {
         ATEMFX_LOG_ERROR("%s", localError.c_str());
         if (error)
@@ -288,11 +325,23 @@ bool D3D11ShaderLibrary::reloadAll(std::string& error)
         ATEMFX_LOG_ERROR("fullscreen.hlsl: %s", vertexError.c_str());
     }
 
+    std::string spriteError;
+    if (!compileSpriteVertexShader(spriteError))
+    {
+        allSucceeded = false;
+        if (firstError.empty())
+        {
+            firstError = spriteError;
+        }
+        ATEMFX_LOG_ERROR("sprite.hlsl: %s", spriteError.c_str());
+    }
+
     for (auto& [name, entry] : shaders_)
     {
         ComPtr<ID3D11PixelShader> shader;
+        bool                      sprite = false;
         std::string               localError;
-        if (!buildPixelShader(name, shader, localError))
+        if (!buildPixelShader(name, shader, sprite, localError))
         {
             allSucceeded = false;
             if (firstError.empty())
@@ -303,12 +352,13 @@ bool D3D11ShaderLibrary::reloadAll(std::string& error)
             continue;  // keep the previous, working shader
         }
         entry->pixelShader = shader;
+        entry->sprite      = sprite;
     }
 
     error = firstError;
     if (allSucceeded)
     {
-        ATEMFX_LOG_INFO("Reloaded %zu shaders", shaders_.size() + 1);
+        ATEMFX_LOG_INFO("Reloaded %zu shaders", shaders_.size() + 2);
     }
     return allSucceeded;
 }
@@ -538,7 +588,7 @@ void D3D11FullscreenPass::draw(GpuTexture&            target,
                                const GpuTexture*      history)
 {
     const D3D11Shader* program = static_cast<const D3D11Shader*>(shader);
-    if (!owner_ || !program || !program->pixelShader || !target.valid())
+    if (!owner_ || !program || !program->pixelShader || program->sprite || !target.valid())
     {
         return;
     }
@@ -606,6 +656,202 @@ void D3D11FullscreenPass::draw(GpuTexture&            target,
     // bound produces a read/write hazard and a silently black frame.
     ID3D11ShaderResourceView* nullSrvs[2] = {};
     context->PSSetShaderResources(0, 2, nullSrvs);
+
+    ID3D11RenderTargetView* nullRtv = nullptr;
+    context->OMSetRenderTargets(1, &nullRtv, nullptr);
+}
+
+// ---------------------------------------------------------------------------
+// D3D11SpritePass
+// ---------------------------------------------------------------------------
+
+bool D3D11SpritePass::initialize(D3D11Device& device, std::string& error)
+{
+    owner_ = &device;
+
+    ID3D11Device* d3d = device.device();
+
+    D3D11_BUFFER_DESC constants = {};
+    constants.ByteWidth      = sizeof(EffectConstants);
+    constants.Usage          = D3D11_USAGE_DYNAMIC;
+    constants.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    constants.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (!ATEMFX_CHECK_HR(d3d->CreateBuffer(&constants, nullptr, constantBuffer_.GetAddressOf()),
+                         "CreateBuffer(sprite constants)"))
+    {
+        error = "Failed to create the sprite constant buffer";
+        return false;
+    }
+
+    // Fixed size, written with WRITE_DISCARD: the driver renames it, so a
+    // batch never overwrites one the GPU is still reading.
+    D3D11_BUFFER_DESC instances = {};
+    instances.ByteWidth      = static_cast<UINT>(sizeof(SpriteInstance) * kMaxSpriteInstances);
+    instances.Usage          = D3D11_USAGE_DYNAMIC;
+    instances.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    instances.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (!ATEMFX_CHECK_HR(d3d->CreateBuffer(&instances, nullptr, instanceBuffer_.GetAddressOf()),
+                         "CreateBuffer(sprite instances)"))
+    {
+        error = "Failed to create the sprite instance buffer";
+        return false;
+    }
+
+    D3D11_SAMPLER_DESC sampler = {};
+    sampler.AddressU       = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampler.AddressV       = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampler.AddressW       = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampler.ComparisonFunc = D3D11_COMPARISON_NEVER;
+    sampler.MaxLOD         = D3D11_FLOAT32_MAX;
+
+    sampler.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+    if (!ATEMFX_CHECK_HR(d3d->CreateSamplerState(&sampler, pointSampler_.GetAddressOf()),
+                         "CreateSamplerState(sprite point)"))
+    {
+        error = "Failed to create the sprite point sampler";
+        return false;
+    }
+
+    sampler.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    if (!ATEMFX_CHECK_HR(d3d->CreateSamplerState(&sampler, linearSampler_.GetAddressOf()),
+                         "CreateSamplerState(sprite linear)"))
+    {
+        error = "Failed to create the sprite linear sampler";
+        return false;
+    }
+
+    D3D11_RASTERIZER_DESC rasterizer = {};
+    rasterizer.FillMode        = D3D11_FILL_SOLID;
+    rasterizer.CullMode        = D3D11_CULL_NONE;
+    rasterizer.DepthClipEnable = TRUE;
+    if (!ATEMFX_CHECK_HR(d3d->CreateRasterizerState(&rasterizer, rasterizer_.GetAddressOf()),
+                         "CreateRasterizerState(sprite)"))
+    {
+        error = "Failed to create the sprite rasterizer state";
+        return false;
+    }
+
+    // Premultiplied source over, matching the Metal sprite pipeline.
+    D3D11_BLEND_DESC blend = {};
+    blend.RenderTarget[0].BlendEnable           = TRUE;
+    blend.RenderTarget[0].SrcBlend              = D3D11_BLEND_ONE;
+    blend.RenderTarget[0].DestBlend             = D3D11_BLEND_INV_SRC_ALPHA;
+    blend.RenderTarget[0].BlendOp               = D3D11_BLEND_OP_ADD;
+    blend.RenderTarget[0].SrcBlendAlpha         = D3D11_BLEND_ONE;
+    blend.RenderTarget[0].DestBlendAlpha        = D3D11_BLEND_INV_SRC_ALPHA;
+    blend.RenderTarget[0].BlendOpAlpha          = D3D11_BLEND_OP_ADD;
+    blend.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    if (!ATEMFX_CHECK_HR(d3d->CreateBlendState(&blend, blendState_.GetAddressOf()),
+                         "CreateBlendState(sprite)"))
+    {
+        error = "Failed to create the sprite blend state";
+        return false;
+    }
+
+    D3D11_DEPTH_STENCIL_DESC depthStencil = {};
+    depthStencil.DepthFunc = D3D11_COMPARISON_ALWAYS;
+    if (!ATEMFX_CHECK_HR(d3d->CreateDepthStencilState(&depthStencil, depthStencilState_.GetAddressOf()),
+                         "CreateDepthStencilState(sprite)"))
+    {
+        error = "Failed to create the sprite depth stencil state";
+        return false;
+    }
+
+    return true;
+}
+
+void D3D11SpritePass::shutdown()
+{
+    depthStencilState_.Reset();
+    blendState_.Reset();
+    rasterizer_.Reset();
+    linearSampler_.Reset();
+    pointSampler_.Reset();
+    instanceBuffer_.Reset();
+    constantBuffer_.Reset();
+    owner_ = nullptr;
+}
+
+void D3D11SpritePass::draw(GpuTexture&            target,
+                           ShaderHandle           shader,
+                           const GpuTexture&      source,
+                           const EffectConstants& constants,
+                           const SpriteInstance*  instances,
+                           std::size_t            count,
+                           SamplerFilter          filter)
+{
+    const D3D11Shader* program = static_cast<const D3D11Shader*>(shader);
+    if (!owner_ || !program || !program->pixelShader || !program->sprite || !target.valid() ||
+        !source.valid() || &source == &target || !instances || count == 0)
+    {
+        return;
+    }
+
+    ID3D11DeviceContext* context      = owner_->context();
+    ID3D11VertexShader*  vertexShader = static_cast<D3D11ShaderLibrary&>(owner_->shaders())
+                                           .spriteVertexShader();
+    if (!context || !vertexShader)
+    {
+        return;
+    }
+
+    count = std::min(count, kMaxSpriteInstances);
+
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    if (SUCCEEDED(context->Map(constantBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    {
+        std::memcpy(mapped.pData, &constants, sizeof(constants));
+        context->Unmap(constantBuffer_.Get(), 0);
+    }
+
+    if (SUCCEEDED(context->Map(instanceBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    {
+        std::memcpy(mapped.pData, instances, sizeof(SpriteInstance) * count);
+        context->Unmap(instanceBuffer_.Get(), 0);
+    }
+
+    D3D11Texture&           destination = static_cast<D3D11Texture&>(target);
+    ID3D11RenderTargetView* rtv         = destination.rtv();
+    context->OMSetRenderTargets(1, &rtv, nullptr);
+
+    D3D11_VIEWPORT viewport = {};
+    viewport.Width    = static_cast<float>(destination.width());
+    viewport.Height   = static_cast<float>(destination.height());
+    viewport.MaxDepth = 1.0f;
+    context->RSSetViewports(1, &viewport);
+
+    context->RSSetState(rasterizer_.Get());
+    context->OMSetBlendState(blendState_.Get(), nullptr, 0xFFFFFFFFu);
+    context->OMSetDepthStencilState(depthStencilState_.Get(), 0);
+
+    // Quads come from SV_VertexID and SV_InstanceID, like the fullscreen
+    // triangle: no vertex buffer, no input layout.
+    context->IASetInputLayout(nullptr);
+    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    context->VSSetShader(vertexShader, nullptr, 0);
+    context->PSSetShader(program->pixelShader.Get(), nullptr, 0);
+    context->GSSetShader(nullptr, nullptr, 0);
+    context->HSSetShader(nullptr, nullptr, 0);
+    context->DSSetShader(nullptr, nullptr, 0);
+
+    ID3D11ShaderResourceView* srv = static_cast<const D3D11Texture&>(source).srv();
+    ID3D11SamplerState*       sampler =
+        (filter == SamplerFilter::Point) ? pointSampler_.Get() : linearSampler_.Get();
+    ID3D11Buffer* buffers[2] = {constantBuffer_.Get(), instanceBuffer_.Get()};
+
+    context->PSSetShaderResources(0, 1, &srv);
+    context->PSSetSamplers(0, 1, &sampler);
+    context->PSSetConstantBuffers(0, 1, buffers);
+    context->VSSetConstantBuffers(0, 2, buffers);
+
+    context->DrawInstanced(6, static_cast<UINT>(count), 0, 0);
+
+    ID3D11ShaderResourceView* nullSrv = nullptr;
+    context->PSSetShaderResources(0, 1, &nullSrv);
+
+    ID3D11Buffer* nullBuffers[2] = {};
+    context->VSSetConstantBuffers(0, 2, nullBuffers);
 
     ID3D11RenderTargetView* nullRtv = nullptr;
     context->OMSetRenderTargets(1, &nullRtv, nullptr);
@@ -1189,6 +1435,12 @@ bool D3D11Device::initialize(Window* window, uint32_t processingWidth, uint32_t 
         return false;
     }
 
+    if (!spritePass_.initialize(*this, error))
+    {
+        ATEMFX_LOG_ERROR("Sprite pass: %s", error.c_str());
+        return false;
+    }
+
     if (!gpuTimer_.initialize(device_.Get()))
     {
         // Losing the timer costs diagnostics, not video. Carry on.
@@ -1290,6 +1542,7 @@ bool D3D11Device::createBackBufferView()
 void D3D11Device::shutdown()
 {
     gpuTimer_.shutdown();
+    spritePass_.shutdown();
     fullscreenPass_.shutdown();
     targets_.release();
     shaders_.shutdown();

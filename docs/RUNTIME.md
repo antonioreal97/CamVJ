@@ -368,19 +368,25 @@ show opens on black before anything goes live.
 
 ```text
 auto_frame    enabled
+face_mosaic   disabled
 passthrough   disabled
 rgb_split     disabled
 pixelate      disabled
 fm_raster     disabled
 subpixel      disabled
 shutter       disabled
+frame_delay   disabled
 mirror        disabled
 vhs           disabled
 crt           disabled
 ```
 
+`face_mosaic` sits right after `auto_frame` so the tiles are cut from the
+framed picture and every look after it treats the mosaic as one image. The
+face sensor runs only while it is enabled.
+
 `--enable a,b,c` does not change which nodes exist. It changes which of those
-ten start enabled. Unknown ids in the list simply leave that node off.
+twelve start enabled. Unknown ids in the list simply leave that node off.
 
 ---
 
@@ -547,7 +553,8 @@ src/video/mac/CameraCaptureAVF.mm virtual_camera_mac.mm
 src/video/win32/CameraCaptureMF.cpp
 src/tracking/Tracker.h TrackingSnapshot.h framing.h/.cpp tracker_stub.cpp
 src/tracking/source_mapping.h/.cpp
-src/tracking/mac/VisionTracker.mm
+src/tracking/FaceSensor.h FacesSnapshot.h face_tracks.h/.cpp face_sensor_stub.cpp
+src/tracking/mac/VisionTracker.mm VisionFaceSensor.mm
 src/effects/Effect.h EffectParameters.h EffectRegistry.h/.cpp
 src/effects/parameter_automation.h/.cpp
 src/effects/EffectChain.h/.cpp ShaderEffect.h/.cpp BuiltinEffects.h/.cpp
@@ -555,6 +562,7 @@ src/effects/PassthroughEffect.cpp RgbSplitEffect.cpp
 src/effects/PixelateEffect.cpp FmRasterEffect.cpp SubpixelEffect.cpp
 src/effects/ShutterEffect.cpp FrameDelayEffect.cpp VhsEffect.cpp
 src/effects/CrtEffect.cpp MirrorEffect.cpp AutoFrameEffect.cpp
+src/effects/FaceMosaicEffect.cpp face_tiles.h/.cpp
 src/ui/UiLayer.h/.cpp Theme.h/.cpp Fonts.h/.cpp Panels.h
 src/ui/SourcePanel.cpp OutputPanel.cpp
 src/ui/EffectsPanel.cpp PreviewPanel.cpp StatsPanel.cpp ParameterWidgets.cpp

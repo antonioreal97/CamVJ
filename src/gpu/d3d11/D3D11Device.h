@@ -63,6 +63,9 @@ struct D3D11Shader
 {
     std::string               name;
     ComPtr<ID3D11PixelShader> pixelShader;
+
+    // Compiled from sprite_fragment, for D3D11SpritePass only.
+    bool sprite = false;
 };
 
 class D3D11ShaderLibrary final : public ShaderLibrary
@@ -76,6 +79,7 @@ public:
     std::string  directory() const override { return directory_.string(); }
 
     ID3D11VertexShader* fullscreenVertexShader() const { return vertexShader_.Get(); }
+    ID3D11VertexShader* spriteVertexShader() const { return spriteVertexShader_.Get(); }
 
 private:
     bool compile(const std::filesystem::path& path,
@@ -85,12 +89,15 @@ private:
                  std::string&                 error) const;
 
     bool compileVertexShader(std::string& error);
-    bool buildPixelShader(const std::string& name, ComPtr<ID3D11PixelShader>& shader, std::string& error);
+    bool compileSpriteVertexShader(std::string& error);
+    bool buildPixelShader(const std::string& name, ComPtr<ID3D11PixelShader>& shader, bool& sprite,
+                          std::string& error);
 
     ID3D11Device*         device_ = nullptr;
     std::filesystem::path directory_;
 
     ComPtr<ID3D11VertexShader> vertexShader_;
+    ComPtr<ID3D11VertexShader> spriteVertexShader_;
 
     // unique_ptr so a rehash never invalidates a handle already handed out.
     std::unordered_map<std::string, std::unique_ptr<D3D11Shader>> shaders_;
@@ -149,6 +156,32 @@ private:
     D3D11Device* owner_ = nullptr;
 
     ComPtr<ID3D11Buffer>            constantBuffer_;
+    ComPtr<ID3D11SamplerState>      pointSampler_;
+    ComPtr<ID3D11SamplerState>      linearSampler_;
+    ComPtr<ID3D11RasterizerState>   rasterizer_;
+    ComPtr<ID3D11BlendState>        blendState_;
+    ComPtr<ID3D11DepthStencilState> depthStencilState_;
+};
+
+class D3D11SpritePass final : public SpritePass
+{
+public:
+    bool initialize(D3D11Device& device, std::string& error);
+    void shutdown();
+
+    void draw(GpuTexture&            target,
+              ShaderHandle           shader,
+              const GpuTexture&      source,
+              const EffectConstants& constants,
+              const SpriteInstance*  instances,
+              std::size_t            count,
+              SamplerFilter          filter) override;
+
+private:
+    D3D11Device* owner_ = nullptr;
+
+    ComPtr<ID3D11Buffer>            constantBuffer_;
+    ComPtr<ID3D11Buffer>            instanceBuffer_;
     ComPtr<ID3D11SamplerState>      pointSampler_;
     ComPtr<ID3D11SamplerState>      linearSampler_;
     ComPtr<ID3D11RasterizerState>   rasterizer_;
@@ -247,6 +280,7 @@ public:
 
     ShaderLibrary&  shaders() override { return shaders_; }
     FullscreenPass& fullscreenPass() override { return fullscreenPass_; }
+    SpritePass&     spritePass() override { return spritePass_; }
     TargetPool&     targets() override { return targets_; }
 
     float lastGpuMilliseconds() const override { return gpuTimer_.milliseconds(); }
@@ -272,6 +306,7 @@ private:
     D3D11ShaderLibrary  shaders_;
     D3D11TargetPool     targets_;
     D3D11FullscreenPass fullscreenPass_;
+    D3D11SpritePass     spritePass_;
     D3D11GpuTimer       gpuTimer_;
 
     std::string adapterName_ = "unknown";

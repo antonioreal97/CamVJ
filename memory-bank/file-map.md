@@ -87,10 +87,14 @@ CamVJ/
 │   │                 FrameDelayEffect.cpp
 │   │                 VhsEffect.cpp CrtEffect.cpp MirrorEffect.cpp
 │   │                 AutoFrameEffect.cpp        # usa tracking/framing.h
+│   │                 FaceMosaicEffect.cpp       # rostos do público → tiles (SpritePass)
+│   │                 face_tiles.h/.cpp          # FaceTileManager portátil + CTest
 │   ├── tracking/     Tracker.h TrackingSnapshot.h framing.h/.cpp
 │   │                 source_mapping.h/.cpp      # canvas↔captura + Pick
-│   │                 tracker_stub.cpp           # Windows: sem detector
+│   │                 FaceSensor.h FacesSnapshot.h face_tracks.h/.cpp  # ids por IoU + CTest
+│   │                 tracker_stub.cpp face_sensor_stub.cpp  # Windows: sem detector
 │   │   └── mac/      VisionTracker.mm           # Vision + object lock, thread própria
+│   │                 VisionFaceSensor.mm        # Vision, todos os rostos, 15 Hz, ocioso sem efeito
 │   └── ui/           UiLayer.* Theme.* Panels.h SourcePanel.cpp OutputPanel.cpp
 │                     ProgramPanel.cpp EffectsPanel.cpp PreviewPanel.cpp
 │                     StatsPanel.cpp

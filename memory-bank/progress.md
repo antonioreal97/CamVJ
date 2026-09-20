@@ -86,6 +86,23 @@ Verificado: build limpo, `ctest` 3/3 (incluindo `source_mapping`), `--check-shad
 **Não verificado:** Pick com câmera ao vivo (duas pessoas, drag, lock perdido)
 e qualquer coisa no Windows.
 
+## Extensão solicitada: Face Mosaic (fase 1)
+
+Pedido 2026-09-19. Rostos do público viram tiles independentes espalhados
+pelo quadro. Sem abrir milestone: feedback é FX-008 (M2), presets são M3.
+
+- `SpritePass` em `src/gpu/Rhi.h` + Metal + D3D11: até 64 quads num draw,
+  instâncias inline (sem buffer que o próximo frame sobrescreva).
+- `FaceSensor` (Vision, 15 Hz, thread própria, ocioso sem efeito pedindo) e
+  `FaceTrackManager` (IoU + distância, 2 hits para publicar, expira em 0,5 s).
+- `face_mosaic`: fundo (nível ajustável) + tiles com borda suave e cantos
+  arredondados; posição aleatória estável por seed; sliders retargetam tiles
+  já no ar; 9:16 posiciona só dentro da janela retrato.
+- CTest `face_tracks` e `face_tiles`.
+
+Verificado headless no M4. **Pendente:** câmera ao vivo com público e
+qualquer coisa no Windows.
+
 ## Extensão solicitada: segurança da imagem
 
 Implementação em validação, sem abrir novo milestone.

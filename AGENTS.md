@@ -30,7 +30,7 @@ when the architecture or milestone status changes.
 | Shaders       | HLSL (SM 5.0) / MSL                     | yes                    |
 | UI            | Dear ImGui                              | yes (only third-party) |
 | Logs          | spdlog                                  | **planned** — `src/core/Log.cpp` is a printf wrapper with spdlog-shaped macros |
-| Tests         | Standalone C++ checks / Catch2 planned   | portable checks via CTest (automation, framing, source mapping, source health, program output); `--headless` remains the rendering gate |
+| Tests         | Standalone C++ checks / Catch2 planned   | portable checks via CTest (automation, framing, source mapping, source health, program output, face tracks, face tiles); `--headless` remains the rendering gate |
 | Config        | JSON                                    | **planned** (M3 presets) |
 | SDI           | Blackmagic DeckLink SDK (M1+)           | optional Windows discovery; capture/playback **planned** |
 | ATEM control  | Blackmagic ATEM SDK (M4+)               | **planned**            |
@@ -162,7 +162,8 @@ Do not create `main.cpp` with 5000 lines. Follow the tree in
 
 - macOS Vision is the production person detector for tracking; the Windows detector is deferred and Pick subject is hidden there. Vision auto-selects only until the first Pick; lost lock holds framing until a new Pick, and a camera change clears the lock.
 - There is no video output on macOS (no DeckLink playback). ATEM USB-C is one UVC webcam (typically Program), not per-input ISO live feeds; multi-camera FX is AUX→DeckLink (M1/M4). Routing the treated picture back to ATEM or Resolume is unsolved and unscoped.
-- Default chain: `auto_frame` first and enabled, then passthrough / rgb_split / pixelate / fm_raster / subpixel / shutter / frame_delay / mirror / vhs / crt off, with Follow Subject on. Eleven nodes; `--enable` toggles those and creates none.
+- Default chain: `auto_frame` first and enabled, then face_mosaic / passthrough / rgb_split / pixelate / fm_raster / subpixel / shutter / frame_delay / mirror / vhs / crt off, with Follow Subject on. Twelve nodes; `--enable` toggles those and creates none.
+- Face Mosaic (2026-09-19, phase 1): `FaceSensor` (Vision, own thread, 15 Hz, idle unless an enabled node's `inputs()` has `kEffectInputFaces`) → `FaceTrackManager` ids → `EffectContext::faces` → `face_mosaic` draws tiles with `SpritePass`, the RHI's second primitive (up to 64 instanced quads, premultiplied over, `sprite_fragment` entry point in MSL and HLSL). Feedback is M2, presets M3. Plan: `docs/plans/2026-09-19-face-mosaic.md`.
 - Subpixel draws luma-gated RGB sprites inside each cell (~3 ms on M4 after a neighbourhood gather missed 1080p60). Shutter keeps the last output in `TargetPool::persistent()` and samples it as t1; that optional history on `FullscreenPass::draw` is still one primitive, not the M2 graph.
 - Preview is split. The right monitor is PROGRAM (what the output receives; 9:16 UV-crops the centre strip). The left monitor is a bus with two positions: SOURCE (pre-chain camera plus Tungsten subject and cyan crop overlays, and the subject picker) and FX (`chainPreview` — the chain's own image, captured before `ProgramOutput` can hold or replace it, so a look can be built and watched behind Freeze or Black before it is taken). A live subject pick forces the left monitor back to SOURCE. 9:16 output is a centred letterbox strip on the 1920×1080 canvas so Resolume can crop a static mapping.
 - Only camera input feeds the tracker. Test Pattern has no CPU BGRA and reports `no frames from this input`.

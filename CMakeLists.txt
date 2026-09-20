@@ -140,6 +140,9 @@ set(ATEMFX_SOURCES
     src/effects/EffectRegistry.cpp
     src/effects/EffectRegistry.h
     src/effects/AutoFrameEffect.cpp
+    src/effects/FaceMosaicEffect.cpp
+    src/effects/face_tiles.cpp
+    src/effects/face_tiles.h
     src/effects/MirrorEffect.cpp
     src/effects/PassthroughEffect.cpp
     src/effects/PixelateEffect.cpp
@@ -153,6 +156,10 @@ set(ATEMFX_SOURCES
     src/effects/ShaderEffect.cpp
     src/effects/ShaderEffect.h
 
+    src/tracking/face_tracks.cpp
+    src/tracking/face_tracks.h
+    src/tracking/FaceSensor.h
+    src/tracking/FacesSnapshot.h
     src/tracking/framing.cpp
     src/tracking/framing.h
     src/tracking/source_mapping.cpp
@@ -187,7 +194,8 @@ if(ATEMFX_BACKEND STREQUAL "d3d11")
         src/ui/backend/UiLayerD3D11.cpp
         src/video/win32/CameraCaptureMF.cpp
         src/video/virtual_camera_stub.cpp
-        src/tracking/tracker_stub.cpp)
+        src/tracking/tracker_stub.cpp
+        src/tracking/face_sensor_stub.cpp)
 else()
     list(APPEND ATEMFX_SOURCES
         src/platform/mac/MacWindow.mm
@@ -197,7 +205,8 @@ else()
         src/ui/backend/UiLayerMetal.mm
         src/video/mac/CameraCaptureAVF.mm
         src/video/mac/virtual_camera_mac.mm
-        src/tracking/mac/VisionTracker.mm)
+        src/tracking/mac/VisionTracker.mm
+        src/tracking/mac/VisionFaceSensor.mm)
 endif()
 
 add_executable(atem_fx ${ATEMFX_SOURCES})
@@ -251,6 +260,7 @@ else()
         src/video/mac/CameraCaptureAVF.mm
         src/video/mac/virtual_camera_mac.mm
         src/tracking/mac/VisionTracker.mm
+        src/tracking/mac/VisionFaceSensor.mm
         "${imgui_SOURCE_DIR}/backends/imgui_impl_osx.mm"
         "${imgui_SOURCE_DIR}/backends/imgui_impl_metal.mm")
     set_source_files_properties(${ATEMFX_ARC_SOURCES} PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
@@ -379,6 +389,26 @@ if(BUILD_TESTING)
         target_compile_options(source_mapping_test PRIVATE -Wall -Wextra)
     endif()
     add_test(NAME source_mapping COMMAND source_mapping_test)
+
+    # Face identities and the tiles built on them: the Face Mosaic's
+    # judgement, testable with no camera and no GPU.
+    add_executable(face_tracks_test
+        tests/face_tracks_test.cpp
+        src/tracking/face_tracks.cpp)
+    target_include_directories(face_tracks_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    add_executable(face_tiles_test
+        tests/face_tiles_test.cpp
+        src/effects/face_tiles.cpp)
+    target_include_directories(face_tiles_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    foreach(face_test face_tracks_test face_tiles_test)
+        if(MSVC)
+            target_compile_options(${face_test} PRIVATE /W4 /permissive- /utf-8)
+        else()
+            target_compile_options(${face_test} PRIVATE -Wall -Wextra)
+        endif()
+    endforeach()
+    add_test(NAME face_tracks COMMAND face_tracks_test)
+    add_test(NAME face_tiles COMMAND face_tiles_test)
 
     add_executable(display_routing_test
         tests/display_routing_test.cpp
