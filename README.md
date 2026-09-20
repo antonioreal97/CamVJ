@@ -106,7 +106,7 @@ Orçamento: 16,68 ms/frame (59,94 fps). A taxa não é travada no display.
 
 CLI: `--headless`, `--frames N`, `--dump PATH`, `--enable a,b,c`,
 `--no-vsync`, `--source ID`, `--pattern NAME`, `--list-sources`, `--output ID`,
-`--list-displays`, `--webcam`, `--program MODE`, `--list-decklink`,
+`--list-displays`, `--webcam`, `--record`, `--record-dir PATH`, `--program MODE`, `--list-decklink`,
 `--version`, `--help`.
 Detalhes em [docs/BUILD.md](docs/BUILD.md).
 
@@ -500,6 +500,7 @@ pendente; não há captura, playback ou monitoramento de conexão/desconexão.
 | [docs/TRACKING.md](docs/TRACKING.md) | Tracking de pessoa/objeto e enquadramento |
 | [docs/VIDEO_PIPELINE.md](docs/VIDEO_PIPELINE.md) | Pipeline M0 + contrato M1 |
 | [docs/VIRTUAL_CAMERA.md](docs/VIRTUAL_CAMERA.md) | PROGRAM como webcam (`--webcam`, macOS) |
+| [docs/RECORDING.md](docs/RECORDING.md) | Gravação do PROGRAM em ProRes 422 HQ 10-bit (`--record`, macOS) |
 | [docs/ATEM_INTEGRATION.md](docs/ATEM_INTEGRATION.md) | Design M4 (não implementado) |
 | [docs/PRODUCT.md](docs/PRODUCT.md) | Meta V1 vs o que existe |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones e backlog |

@@ -25,6 +25,15 @@ std::filesystem::path fallbackUserData()
 
 } // namespace
 
+std::string pathToUtf8(const std::filesystem::path& path)
+{
+    const std::u8string encoded = path.u8string();
+    std::string result;
+    result.reserve(encoded.size());
+    for (char8_t byte : encoded) result.push_back(static_cast<char>(byte));
+    return result;
+}
+
 std::filesystem::path userDataDirectory()
 {
 #if defined(__APPLE__)
@@ -55,6 +64,38 @@ std::filesystem::path userDataDirectory()
     }
 #endif
     return fallbackUserData();
+}
+
+std::filesystem::path recordingsDirectory()
+{
+#if defined(__APPLE__)
+    const char* home = std::getenv("HOME");
+    if (!home || home[0] == '\0')
+    {
+        if (const passwd* pw = getpwuid(getuid()))
+        {
+            home = pw->pw_dir;
+        }
+    }
+    if (home && home[0] != '\0')
+    {
+        return std::filesystem::path(home) / "Movies" / "CamVJ";
+    }
+#elif defined(_WIN32)
+    wchar_t profile[32768] = {};
+    const DWORD length = GetEnvironmentVariableW(L"USERPROFILE", profile,
+                                                  static_cast<DWORD>(std::size(profile)));
+    if (length > 0 && length < std::size(profile))
+    {
+        return std::filesystem::path(profile) / "Videos" / "CamVJ";
+    }
+#else
+    if (const char* home = std::getenv("HOME"); home && home[0] != '\0')
+    {
+        return std::filesystem::path(home) / "Videos" / "CamVJ";
+    }
+#endif
+    return std::filesystem::path("CamVJ-recordings");
 }
 
 bool ensureUserDataDirectory(std::string& error)

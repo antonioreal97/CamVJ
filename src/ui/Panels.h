@@ -11,6 +11,7 @@
 #include "tracking/TrackingSnapshot.h"
 #include "video/VideoSource.h"
 #include "video/program_output.h"
+#include "video/program_recorder.h"
 #include "video/source_health.h"
 #include "video/virtual_camera.h"
 
@@ -200,6 +201,12 @@ struct UiFrameState
     const std::string*   webcamStatus      = nullptr;
     bool*               requestWebcamStart = nullptr;
     bool*               requestWebcamStop  = nullptr;
+
+    bool                recorderSupported  = false;
+    RecorderStats       recorderStats      = {};
+    const std::string*  recorderStatus     = nullptr;
+    bool*               requestRecordStart = nullptr;
+    bool*               requestRecordStop  = nullptr;
 
     // How much of the look is in the chain: 1 the full chain, 0 Clean. The FX
     // preview bus reads it, because a ramped-out chain honestly shows no look

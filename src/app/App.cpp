@@ -5,11 +5,13 @@
 #include <chrono>
 #include <exception>
 #include <cstdio>
+#include <ctime>
 #include <filesystem>
 #include <thread>
 #include <vector>
 
 #include "core/Log.h"
+#include "core/Paths.h"
 #include "core/Version.h"
 #include "effects/BuiltinEffects.h"
 #include "effects/EffectRegistry.h"
@@ -123,7 +125,7 @@ OverlayStackConfig overlayConfigFromPreset(const ScenePreset& preset)
 std::string overlayImportName(const std::filesystem::path& path, OverlayMediaType mediaType)
 {
     std::string name = mediaType == OverlayMediaType::PngSequence
-        ? path.filename().string() : path.stem().string();
+        ? pathToUtf8(path.filename()) : pathToUtf8(path.stem());
     return name.empty() ? "Overlay" : name;
 }
 
@@ -271,7 +273,7 @@ bool App::initialize(const AppOptions& options)
     }
     overlaysInitialized_ = true;
     rebuildOverlayAssetUi();
-    refreshOverlayUi();
+    refreshOverlayUi(effectContext_.outputAspect);
 
     std::string programError;
     if (!programOutput_.initialize(effectContext_, programError))
@@ -346,6 +348,22 @@ bool App::initialize(const AppOptions& options)
             webcamStatus_ = "Webcam output is not supported on this platform";
             webcamFailed_ = true;
             ATEMFX_LOG_WARN("%s", webcamStatus_.c_str());
+        }
+    }
+
+    recorderSupported_ = programRecorderSupported();
+    if (options_.record)
+    {
+        if (recorderSupported_)
+        {
+            // The button's path, for the same reason as the webcam.
+            requestRecordStart_ = true;
+        }
+        else
+        {
+            recorderStatus_ = "Recording is not supported on this platform";
+            recorderFailed_ = true;
+            ATEMFX_LOG_WARN("%s", recorderStatus_.c_str());
         }
     }
 
@@ -838,12 +856,96 @@ void App::serviceWebcam()
     }
 }
 
+// Files are opened and closed here, between frames, like every other device.
+// The recorder does the slow part (creating and closing the movie) on its own
+// queue; this only starts it, asks it to stop and collects it once it has.
+void App::serviceRecorder()
+{
+    if (recorder_)
+    {
+        recorderStats_ = recorder_->stats();
+
+        if (recorderStats_.state == RecorderState::Failed)
+        {
+            recorderStatus_ = recorder_->error();
+            recorderFailed_ = true;
+            ATEMFX_LOG_WARN("Recording: %s", recorderStatus_.c_str());
+            recorder_.reset();
+            recorderStats_.state = RecorderState::Stopped;
+        }
+        else if (recorderStats_.state == RecorderState::Stopped)
+        {
+            // The movie is closed; destroying the recorder does not wait.
+            recorder_.reset();
+            recorderStats_.state = RecorderState::Stopped;
+            recorderStatus_ = recorderStats_.written > 0 ? "Saved " + recorderFile_
+                                                         : "Stopped before any frame; nothing saved";
+        }
+    }
+
+    if (requestRecordStop_)
+    {
+        requestRecordStop_ = false;
+        if (recorder_)
+        {
+            recorderStatus_ = "Closing the file";
+            recorder_->requestStop();
+        }
+    }
+
+    if (requestRecordStart_)
+    {
+        requestRecordStart_ = false;
+        if (!recorder_)
+        {
+            const std::filesystem::path directory = options_.recordDirectory.empty()
+                ? recordingsDirectory()
+                : std::filesystem::path(options_.recordDirectory);
+
+            const std::time_t now = std::time(nullptr);
+            std::tm           local{};
+#if defined(_WIN32)
+            localtime_s(&local, &now);
+#else
+            localtime_r(&now, &local);
+#endif
+            const std::filesystem::path file = uniqueRecordingPath(directory, local);
+
+            std::string error;
+            recorder_ = createProgramRecorder(*device_, file, error);
+            if (recorder_)
+            {
+                recorderStats_  = {};
+                recorderStats_.state = RecorderState::Starting;
+                recorderFile_   = file.string();
+                recorderStatus_ = "Opening " + recorderFile_;
+            }
+            else
+            {
+                recorderStatus_ = error;
+                recorderFailed_ = true;
+                ATEMFX_LOG_WARN("Recording: %s", error.c_str());
+            }
+        }
+    }
+}
+
 // Non-zero only when the run was asked for a webcam on the command line and
 // never got one. An operator who started it from the panel gets the message
 // in the panel; a script that passed --webcam gets an exit status.
 int App::webcamResult() const
 {
     return (options_.webcam && webcamFailed_) ? 1 : 0;
+}
+
+// The exit status of a run: a --webcam or --record that never worked fails it.
+int App::runResult() const
+{
+    if (webcamResult() != 0)
+    {
+        return 1;
+    }
+    return (options_.record && recorderFailed_) ? 1 : 0;
 }
 
 void App::persistBootState()
@@ -1030,12 +1132,12 @@ void App::rebuildOverlayAssetUi()
     overlayPanelSnapshot_.assets = &overlayAssetUi_;
 }
 
-void App::refreshOverlayUi()
+void App::refreshOverlayUi(float outputAspect)
 {
     const OverlayUiSnapshot& source = overlaySystem_.snapshot();
     overlayPanelSnapshot_.format = overlayCanvasFormat(
-        effectContext_.outputAspect < 1.0f ? OverlayAspect::Portrait9x16
-                                           : OverlayAspect::Landscape16x9);
+        outputAspect < 1.0f ? OverlayAspect::Portrait9x16
+                            : OverlayAspect::Landscape16x9);
 
     bool rebuild = overlayLayerUi_.size() != source.layerCount;
     if (!rebuild)
@@ -1450,13 +1552,26 @@ int App::run()
             renderFrame();
         }
 
+        // Close the take here rather than in shutdown, so a movie that fails
+        // to close is still reported in the exit status.
+        if (recorder_)
+        {
+            recorder_->requestStop();
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+            while (recorder_ && std::chrono::steady_clock::now() < deadline)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                serviceRecorder();
+            }
+        }
+
         reportTimings();
 
         if (!options_.dumpPath.empty() && !dumpLastFrame(options_.dumpPath))
         {
             return 1;
         }
-        return webcamResult();
+        return runResult();
     }
 
     window_->runFrameLoop([this] {
@@ -1480,7 +1595,7 @@ int App::run()
         }
     });
 
-    return webcamResult();
+    return runResult();
 }
 
 bool App::renderFrame()
@@ -1489,6 +1604,7 @@ bool App::renderFrame()
     // when the operator's monitor cannot provide a preview drawable.
     serviceOutput();
     serviceWebcam();
+    serviceRecorder();
     servicePresets();
     serviceOverlays();
 
@@ -1505,7 +1621,7 @@ bool App::renderFrame()
     const bool wantPreview  = !window_ || !window_->minimized();
     const bool havePreview  = wantPreview && device_->beginFrame();
 
-    if (!havePreview && !outputSurface_ && !webcam_)
+    if (!havePreview && !outputSurface_ && !webcam_ && !recorder_)
     {
         return false;
     }
@@ -1606,6 +1722,13 @@ bool App::renderFrame()
         webcam_->submit(*frame);
     }
 
+    // The recording is PROGRAM too — what the audience saw, not the preview
+    // bus. Same contract: offer and return; a slow disk costs dropped frames.
+    if (recorder_ && frame)
+    {
+        recorder_->submit(*frame);
+    }
+
     device_->endProcessing();
 
     // --- Program output ----------------------------------------------------
@@ -1620,7 +1743,10 @@ bool App::renderFrame()
     if (window_ && havePreview)
     {
         device_->beginUi();
-        refreshOverlayUi();
+        // ProgramOutput may have restored the aspect stored with a held
+        // Freeze frame. The overlay inspector follows the still-running FX
+        // pipeline instead, matching the preview and the variant being used.
+        refreshOverlayUi(chainAspect);
 
         UiFrameState state;
         state.chain               = &chain_;
@@ -1660,6 +1786,11 @@ bool App::renderFrame()
         state.webcamStatus        = &webcamStatus_;
         state.requestWebcamStart  = &requestWebcamStart_;
         state.requestWebcamStop   = &requestWebcamStop_;
+        state.recorderSupported   = recorderSupported_;
+        state.recorderStats       = recorderStats_;
+        state.recorderStatus      = &recorderStatus_;
+        state.requestRecordStart  = &requestRecordStart_;
+        state.requestRecordStop   = &requestRecordStop_;
         state.timing              = &timing_;
         state.effectContext       = &effectContext_;
         state.sourcePreview       = sourceFrame;
@@ -1768,6 +1899,15 @@ void App::reportTimings() const
                         webcamStatus_.empty() ? "" : "  ",
                         webcamStatus_.c_str());
     }
+    if (options_.record)
+    {
+        const RecorderStats record = recorder_ ? recorder_->stats() : recorderStats_;
+        ATEMFX_LOG_INFO("record       %llu written, %llu dropped%s%s",
+                        static_cast<unsigned long long>(record.written),
+                        static_cast<unsigned long long>(record.dropped),
+                        recorderStatus_.empty() ? "" : "  ",
+                        recorderStatus_.c_str());
+    }
     ATEMFX_LOG_INFO("budget       16.68 ms per frame at 59.94 fps");
     ATEMFX_LOG_INFO("--------------------------------------------------");
 }
@@ -1849,6 +1989,15 @@ void App::shutdown()
     // release the camera extension, so the device outlives the last frame the
     // GPU was still copying into it.
     webcam_.reset();
+
+    // Waits (bounded) for the movie to close: quitting mid-take must leave a
+    // playable file. Before the device, because frames still on the GPU are
+    // being written into the recorder's buffers.
+    if (recorder_)
+    {
+        ATEMFX_LOG_INFO("Recording: closing %s before exit", recorderFile_.c_str());
+        recorder_.reset();
+    }
 
     if (device_)
     {

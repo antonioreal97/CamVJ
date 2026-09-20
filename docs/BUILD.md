@@ -9,7 +9,7 @@ feature.
 The only required external dependency is Dear ImGui. DeckLink discovery uses
 the external Blackmagic DeckLink SDK when enabled (see below). Logging is a small `printf`
 wrapper in `src/core/Log.cpp` — spdlog is planned, not linked. Catch2 is not
-wired; the ten portable tests are standalone C++ registered with CTest, with
+wired; the eleven portable tests are standalone C++ registered with CTest, with
 no additional dependency. There is no general app JSON config; presets, venue
 boot and overlay manifests use small scoped hand-written schemas.
 
@@ -132,7 +132,7 @@ Every change must at least pass this before it is called done:
 
 ### Portable checks (CTest)
 
-`BUILD_TESTING=ON` (the default) builds ten standalone test executables from
+`BUILD_TESTING=ON` (the default) builds eleven standalone test executables from
 `tests/` and registers them in CTest:
 
 | Test | Source | What it covers |
@@ -143,6 +143,7 @@ Every change must at least pass this before it is called done:
 | `display_routing` | `display_routing_test.cpp` | stable display selection and route-loss policy |
 | `source_health` | `source_health_test.cpp` | input-loss and reconnect policy |
 | `program_output` | `program_output_test.cpp` | the PROGRAM state machine and the FX/Clean dissolve |
+| `program_recorder` | `program_recorder_test.cpp` | PROGRAM recorder state and bounded handoff policy |
 | `scene_preset` | `scene_preset_test.cpp` | scene JSON, recall and v1→v2 migration |
 | `overlay_playback` | `overlay_playback_test.cpp` | layer fades, loop and one-shot clocks |
 | `overlay_compositor` | `overlay_compositor_test.cpp` | order, opacity, format and shader-failure fallback |

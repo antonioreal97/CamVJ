@@ -81,13 +81,13 @@ std::string lowerAscii(std::string value)
 
 bool isPng(const fs::path& path)
 {
-    return lowerAscii(path.extension().string()) == ".png";
+    return lowerAscii(pathToUtf8(path.extension())) == ".png";
 }
 
 bool naturalLess(const fs::path& left, const fs::path& right)
 {
-    const std::string a = lowerAscii(left.filename().string());
-    const std::string b = lowerAscii(right.filename().string());
+    const std::string a = lowerAscii(pathToUtf8(left.filename()));
+    const std::string b = lowerAscii(pathToUtf8(right.filename()));
     std::size_t i = 0;
     std::size_t j = 0;
     while (i < a.size() && j < b.size())
@@ -119,7 +119,7 @@ bool naturalLess(const fs::path& left, const fs::path& right)
         ++j;
     }
     if (a.size() != b.size()) return a.size() < b.size();
-    return left.filename().string() < right.filename().string();
+    return pathToUtf8(left.filename()) < pathToUtf8(right.filename());
 }
 
 std::string randomId(const char* prefix)
@@ -398,14 +398,14 @@ bool writeText(const fs::path& path, std::string_view text, std::string& error)
     std::ofstream stream(path, std::ios::binary | std::ios::trunc);
     if (!stream)
     {
-        error = "Could not create " + path.string();
+        error = "Could not create " + pathToUtf8(path);
         return false;
     }
     stream.write(text.data(), static_cast<std::streamsize>(text.size()));
     stream.flush();
     if (!stream)
     {
-        error = "Could not write " + path.string();
+        error = "Could not write " + pathToUtf8(path);
         return false;
     }
     return true;
@@ -416,13 +416,13 @@ bool readText(const fs::path& path, std::string& text, std::string& error)
     std::ifstream stream(path, std::ios::binary);
     if (!stream)
     {
-        error = "Could not open " + path.string();
+        error = "Could not open " + pathToUtf8(path);
         return false;
     }
     text.assign(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
     if (!stream.good() && !stream.eof())
     {
-        error = "Could not read " + path.string();
+        error = "Could not read " + pathToUtf8(path);
         return false;
     }
     return true;
@@ -490,7 +490,7 @@ bool collectInputFrames(const OverlayImportSource& source, OverlayKind& kind,
     while (!ec && input != end)
     {
         const fs::directory_entry entry = *input;
-        const std::string filename = entry.path().filename().string();
+        const std::string filename = pathToUtf8(entry.path().filename());
         bool regular = entry.is_regular_file(ec);
         if (ec) break;
         if (filename.empty() || filename[0] != '.')
@@ -633,7 +633,7 @@ bool prepareVariant(const OverlayImportSource& source, const fs::path& stageRoot
 bool manifestToRecord(const fs::path& assetRoot, const OverlayLibrary::Manifest& manifest,
                       OverlayLibrary::AssetRecord& record, std::string& error)
 {
-    if (manifest.id != assetRoot.filename().string() || !manifest.id.starts_with("ovl_"))
+    if (manifest.id != pathToUtf8(assetRoot.filename()) || !manifest.id.starts_with("ovl_"))
     {
         error = "Overlay manifest id does not match its directory";
         return false;
@@ -768,7 +768,7 @@ bool OverlayLibrary::scan(std::string& error)
         const fs::directory_entry entry = *input;
         const bool directory = entry.is_directory(ec);
         if (ec) break;
-        const std::string filename = entry.path().filename().string();
+        const std::string filename = pathToUtf8(entry.path().filename());
         if (!directory || filename.empty() || filename[0] == '.')
         {
             input.increment(ec);

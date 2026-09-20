@@ -40,6 +40,7 @@ CamVJ/
 │   │   ├── mirror.hlsl
 │   │   ├── crossfade.hlsl       # dissolve (cadeia e saída), wet t0 / dry t1
 │   │   ├── overlay_composite.hlsl # alpha premultiplicado dos overlays
+│   │   ├── overlay_mix.hlsl     # troca de variante antes da opacidade
 │   │   └── auto_frame.hlsl      # recorte do enquadramento
 │   └── metal/
 │       ├── common.metal         # prepended em todo fragment
@@ -56,6 +57,7 @@ CamVJ/
 │       ├── mirror.metal
 │       ├── crossfade.metal      # dissolve (cadeia e saída), wet t0 / dry t1
 │       ├── overlay_composite.metal # alpha premultiplicado dos overlays
+│       ├── overlay_mix.metal    # troca de variante antes da opacidade
 │       └── auto_frame.metal
 ├── src/
 │   ├── main.cpp
@@ -79,6 +81,8 @@ CamVJ/
 │   │                                            # ProgramTransition (cadeia) e o
 │   │                                            # dissolve de saída entre quadros
 │   │                 virtual_camera.h           # PROGRAM como webcam (interface)
+│   │                 program_recorder.h/.cpp    # gravação do PROGRAM (interface + política portátil)
+│   │                 mac/program_recorder_mac.mm # ProRes 422 HQ 10-bit via AVAssetWriter
 │   │                 virtual_camera_stub.cpp    # Windows: sem câmera virtual
 │   │                 mac/virtual_camera_mac.mm  # cliente do sink CoreMediaIO
 │   ├── effects/      Effect.h EffectParameters.h EffectRegistry.* EffectChain.*

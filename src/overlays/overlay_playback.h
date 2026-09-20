@@ -18,8 +18,9 @@ public:
 
     void setReady(bool ready);
     void setEnabled(bool enabled);
-    void setPlayback(OverlayPlayback playback) { playback_ = playback; }
+    void setPlayback(OverlayPlayback playback);
     void setFramesPerSecond(float framesPerSecond);
+    void setFrameCount(std::uint32_t frameCount) { frameCount_ = frameCount; }
     void setPaused(bool paused) { paused_ = paused; }
     bool paused() const { return paused_; }
 

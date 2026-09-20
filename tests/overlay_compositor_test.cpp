@@ -82,7 +82,8 @@ class TestShaders final : public ShaderLibrary
 public:
     ShaderHandle shader(const std::string& name, std::string* error = nullptr) override
     {
-        if (available && name == "overlay_composite") return this;
+        if (available && (name == "overlay_composite" || name == "overlay_mix"))
+            return this;
         if (error) *error = "not available";
         return nullptr;
     }
@@ -212,6 +213,30 @@ void checkInvalidLayerIsolation()
            "one bad layer cannot take the remaining stack off air");
 }
 
+void checkPremultipliedReplacement()
+{
+    Fixture f;
+    TestTexture input(1);
+    TestTexture oldArt(2, 1080, 1920);
+    TestTexture newArt(3, 1080, 1920);
+    const OverlayCompositeLayer layer{&newArt, OverlayAspect::Portrait9x16,
+                                      0.8f, &oldArt, 0.5f};
+
+    GpuTexture& result = f.compositor.composite(f.context, input, {&layer, 1});
+    expect(f.pass.draws.size() == 2 && f.compositor.lastPassCount() == 2,
+           "live replacement uses a premultiplied mix pass and one alpha pass");
+    expect(f.pass.draws[0].overlay == &newArt &&
+               f.pass.draws[0].under == &oldArt &&
+               f.pass.draws[0].portrait,
+           "replacement mixes both art variants in the portrait strip");
+    expect(f.pass.draws[1].overlay == f.pass.draws[0].target &&
+               f.pass.draws[1].under == &input &&
+               f.pass.draws[1].opacity == 0.8f &&
+               !f.pass.draws[1].portrait &&
+               &result == f.pass.draws[1].target,
+           "mixed art is composited once at the original layer opacity");
+}
+
 } // namespace
 
 int main()
@@ -219,6 +244,7 @@ int main()
     checkBypasses();
     checkOrderingAndConstants();
     checkInvalidLayerIsolation();
+    checkPremultipliedReplacement();
 
     if (failures == 0)
     {

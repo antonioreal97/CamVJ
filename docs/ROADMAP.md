@@ -210,6 +210,14 @@ work. macOS build, portable tests, shader compilation and the 200-frame gate
 are validated; the Windows picker/WIC/runtime path is written but still needs
 a Windows build and native validation.
 
+### Recording PROGRAM (FX-027)
+
+Requested as a bounded exception to "no recording in V1": one video track of
+PROGRAM to Apple ProRes 422 HQ, 10-bit 4:2:2, 1920×1080, from the same seam
+as the webcam. No audio, no codec choice, no streaming, no ISO of source or
+preview. Details and the validation still owed are in
+[RECORDING.md](RECORDING.md).
+
 ---
 
 ## Backlog
@@ -242,6 +250,7 @@ a Windows build and native validation.
 | FX-024 | PROGRAM safety (FX / Clean / Freeze / Black, input loss) | — | implemented, with `program_output` and `source_health` CTests |
 | FX-025 | PROGRAM as a webcam   | —         | macOS implemented (client of an installed extension); Windows not implemented |
 | FX-026 | Operator overlays (PNG / PNG sequence) | M6 | implemented; macOS verified, Windows runtime validation pending |
+| FX-027 | Record PROGRAM (ProRes 422 HQ) | — | macOS written, pending build and show-machine validation; Windows not implemented |
 
 FX-006's sibling Mirror shipped in M0 as well; it was never given its own
 issue number. Neither did the effects added after it — `fm_raster`,

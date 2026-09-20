@@ -42,8 +42,20 @@ struct PickerSharedState
     std::mutex          mutex;
     OverlayPickerResult result;
     std::atomic<bool>   cancelled{false};
-    std::atomic<HWND>   dialogWindow{nullptr};
 };
+
+// The file dialog pumps messages on this STA worker. A thread timer checks the
+// cancellation flag from within that same apartment and calls IFileDialog::Close
+// there; a window handle queried before Show is not yet available.
+thread_local PickerSharedState* g_pickerTimerState = nullptr;
+thread_local IFileOpenDialog* g_pickerTimerDialog = nullptr;
+
+VOID CALLBACK pickerTimerProc(HWND, UINT, UINT_PTR, DWORD)
+{
+    if (g_pickerTimerState && g_pickerTimerDialog &&
+        g_pickerTimerState->cancelled.load(std::memory_order_acquire))
+        g_pickerTimerDialog->Close(HRESULT_FROM_WIN32(ERROR_CANCELLED));
+}
 
 class WindowsOverlaySourcePicker final : public OverlaySourcePicker
 {
@@ -54,8 +66,8 @@ public:
     {
         cancel();
         // The shared result owns everything the worker touches. Detach keeps
-        // shutdown non-blocking if Windows has not yet delivered WM_CLOSE to
-        // the native modal dialog.
+        // shutdown non-blocking until the modal dialog dispatches the timer
+        // that closes it on its own apartment thread.
         if (worker_.joinable()) worker_.detach();
     }
 
@@ -111,16 +123,22 @@ public:
                         dialog->SetFileTypes(1, filter);
                         dialog->SetDefaultExtension(L"png");
                     }
-                    ComPtr<IOleWindow> dialogOleWindow;
-                    HWND dialogWindow = nullptr;
-                    if (SUCCEEDED(dialog.As(&dialogOleWindow)))
-                        dialogOleWindow->GetWindow(&dialogWindow);
-                    shared->dialogWindow.store(dialogWindow, std::memory_order_release);
-                    if (shared->cancelled.load(std::memory_order_acquire))
+                    g_pickerTimerState = shared.get();
+                    g_pickerTimerDialog = dialog.Get();
+                    const UINT_PTR timer = SetTimer(nullptr, 0, 50, pickerTimerProc);
+                    if (timer == 0)
+                    {
+                        const DWORD timerError = GetLastError();
+                        hr = HRESULT_FROM_WIN32(timerError == ERROR_SUCCESS
+                                                    ? ERROR_GEN_FAILURE : timerError);
+                    }
+                    else if (shared->cancelled.load(std::memory_order_acquire))
                         hr = HRESULT_FROM_WIN32(ERROR_CANCELLED);
                     else
                         hr = dialog->Show(parent);
-                    shared->dialogWindow.store(nullptr, std::memory_order_release);
+                    if (timer != 0) KillTimer(nullptr, timer);
+                    g_pickerTimerDialog = nullptr;
+                    g_pickerTimerState = nullptr;
                     if (shared->cancelled.load(std::memory_order_acquire) ||
                         hr == HRESULT_FROM_WIN32(ERROR_CANCELLED))
                     {
@@ -188,8 +206,6 @@ public:
     void cancel() override
     {
         shared_->cancelled.store(true, std::memory_order_release);
-        if (const HWND dialog = shared_->dialogWindow.load(std::memory_order_acquire))
-            PostMessageW(dialog, WM_CLOSE, 0, 0);
     }
 
 private:

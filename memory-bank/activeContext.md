@@ -20,7 +20,8 @@ FX-026 foi implementado como abertura estreita do M6, preservando o canvas
   1080×1920, até quatro layers e uma sequência ativa por vez.
 - **Composição:** GPU depois da EffectChain e antes do ProgramOutput; Clean
   dissolve overlays junto do look, Freeze/Black mantêm playback atrás, LED
-  Mapping ignora a pilha. HLSL + MSL `overlay_composite`.
+  Mapping ignora a pilha. HLSL + MSL `overlay_composite` e `overlay_mix`; troca
+  ao vivo mistura as artes antes de aplicar a opacidade da layer uma vez.
 - **UI:** OVERLAYS entre PRESETS e EFFECTS; library/layer abrem no inspector
   largo. Import nunca põe a arte no ar. Operation lock protege biblioteca e
   estrutura, mas não visibilidade/opacidade/transporte.

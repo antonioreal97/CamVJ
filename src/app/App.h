@@ -22,6 +22,7 @@
 #include "video/VideoDevices.h"
 #include "video/VideoSource.h"
 #include "video/program_output.h"
+#include "video/program_recorder.h"
 #include "video/virtual_camera.h"
 
 namespace atemfx {
@@ -59,6 +60,11 @@ struct AppOptions
     // Send PROGRAM through the installed macOS virtual camera extension.
     bool webcam = false;
 
+    // Start recording PROGRAM (ProRes 422 HQ) as soon as the first frame
+    // runs. Empty recordDirectory means recordingsDirectory().
+    bool        record = false;
+    std::string recordDirectory;
+
     // Start on a deliberate PROGRAM state, including black before going live.
     ProgramMode programMode = ProgramMode::Effects;
 
@@ -88,17 +94,19 @@ private:
     void closeOutput();
     void serviceOutput();
     void serviceWebcam();
+    void serviceRecorder();
     void servicePresets();
     void serviceOverlays();
     void consumeOverlayCommand();
     bool beginOverlayPicker(const OverlayUiCommand& command);
     void launchOverlayImport(const std::filesystem::path& source);
     void rebuildOverlayAssetUi();
-    void refreshOverlayUi();
+    void refreshOverlayUi(float outputAspect);
     void persistBootState();
     bool recallPresetById(const std::string& id);
     bool saveCurrentPreset(const std::string& name);
     int webcamResult() const;
+    int runResult() const;
     void startTracking();
     void rescanDevices();
     void updateEffectContext();
@@ -147,6 +155,19 @@ private:
     // Sticky: --webcam that never started is a failed run even if the
     // operator later stops asking for it.
     bool               webcamFailed_ = false;
+
+    // Same shape as the webcam: the recorder's queue owns the file, PROGRAM
+    // only offers a frame, and a stopping recorder stays alive until the
+    // movie is closed. See docs/RECORDING.md.
+    std::unique_ptr<ProgramRecorder> recorder_;
+    RecorderStats      recorderStats_{};
+    bool               recorderSupported_ = false;
+    bool               requestRecordStart_ = false;
+    bool               requestRecordStop_ = false;
+    std::string        recorderStatus_;
+    std::string        recorderFile_;   // the take in progress, or the last one
+    // Sticky, like webcamFailed_: --record that failed is a failed run.
+    bool               recorderFailed_ = false;
 
     // Control plane. Runs beside the pipeline on its own thread, reads the
     // frames capture already produced, and can fail or stall without costing

@@ -120,6 +120,43 @@ void checkBounds()
     expect(state.desiredFrame() == 1, "playback rate is clamped to at least 1 fps");
 }
 
+void checkLiveFrameCountReplacement()
+{
+    OverlayPlaybackState state;
+    state.configure(OverlayKind::PngSequence, 8, OverlayPlayback::Loop, 10.0f);
+    state.setReady(true);
+    state.setEnabled(true);
+    state.advance(0.65f);
+    expect(state.desiredFrame() == 6, "sequence reaches an ordinal in the original asset");
+
+    state.setFrameCount(3);
+    expect(state.desiredFrame() == 0,
+           "live replacement immediately wraps the clock to the new frame count");
+    expect(state.phase() == OverlayLayerPhase::Live,
+           "updating replacement metadata preserves the visibility envelope");
+}
+
+void checkTransportChangeAfterSeveralLoops()
+{
+    OverlayPlaybackState state;
+    state.configure(OverlayKind::PngSequence, 3, OverlayPlayback::Loop, 10.0f);
+    state.setReady(true);
+    state.setEnabled(true);
+    state.advance(1.25f);
+    state.setPlayback(OverlayPlayback::OneShot);
+    expect(state.phase() == OverlayLayerPhase::Live && state.desiredFrame() == 0,
+           "loop-to-one-shot preserves the current cycle instead of ending at once");
+    state.advance(0.10f);
+    expect(state.phase() == OverlayLayerPhase::Live,
+           "one-shot remains live until the current cycle's last frame finishes");
+    state.advance(0.20f);
+    expect(state.phase() == OverlayLayerPhase::FadingOut,
+           "one-shot begins fading only after its current cycle ends");
+    state.setPlayback(OverlayPlayback::Loop);
+    expect(state.enabledRequested() && state.phase() == OverlayLayerPhase::FadingIn,
+           "returning to loop during one-shot fade revives the layer");
+}
+
 } // namespace
 
 int main()
@@ -128,6 +165,8 @@ int main()
     checkThirtyFpsClockAndPause();
     checkOneShotLifecycle();
     checkBounds();
+    checkLiveFrameCountReplacement();
+    checkTransportChangeAfterSeveralLoops();
 
     if (failures == 0)
     {

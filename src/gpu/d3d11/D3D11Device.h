@@ -33,9 +33,11 @@ class D3D11Texture final : public GpuTexture
 public:
     bool create(ID3D11Device* device, uint32_t width, uint32_t height, DXGI_FORMAT format);
 
-    // CPU-writable and sample-only: dynamic BGRA8, for capture frames arriving
-    // in system memory. A dynamic texture cannot also be a render target.
-    bool createUploadable(ID3D11Device* device, uint32_t width, uint32_t height);
+    // Camera uploads retain the existing dynamic BGRA8 path. Overlay uploads
+    // use a CPU-writable staging texture plus a sample-only GPU texture so Map
+    // can return immediately when a ring slot is still busy.
+    bool createUploadable(ID3D11Device* device, uint32_t width, uint32_t height,
+                          bool nonBlockingOverlay = false);
 
     void release();
 
@@ -45,12 +47,14 @@ public:
     void*    nativeTexture() const override { return srv_.Get(); }
 
     ID3D11Texture2D*          texture() const { return texture_.Get(); }
+    ID3D11Texture2D*          uploadStaging() const { return uploadStaging_.Get(); }
     ID3D11RenderTargetView*   rtv() const { return rtv_.Get(); }
     ID3D11ShaderResourceView* srv() const { return srv_.Get(); }
     DXGI_FORMAT               format() const { return format_; }
 
 private:
     ComPtr<ID3D11Texture2D>          texture_;
+    ComPtr<ID3D11Texture2D>          uploadStaging_;
     ComPtr<ID3D11RenderTargetView>   rtv_;
     ComPtr<ID3D11ShaderResourceView> srv_;
 

@@ -55,11 +55,14 @@ VideoSource → EffectChain → OverlaySystem → ProgramOutput → consumers
                                 └──────────────► FX preview bus
 ```
 
-`OverlayCompositor` performs one fullscreen GPU pass for each visible layer,
-using premultiplied normal alpha. It owns two RGBA16 processing targets for
-ping-pong; decoded images enter through fixed BGRA8 upload textures. It does
-not widen `gpu/Rhi.h` and has matching `overlay_composite` shaders in HLSL and
-MSL.
+`OverlayCompositor` normally performs one fullscreen GPU pass for each visible
+layer, using premultiplied normal alpha. A live variant replacement temporarily
+uses a GPU pass to crossfade the two premultiplied PNGs before the normal layer
+pass, preserving the layer's opacity even when the art is opaque. It owns two
+RGBA16 processing targets for ping-pong and one fixed transition target;
+decoded images enter through fixed BGRA8 upload textures. It does not widen
+`gpu/Rhi.h` and has matching `overlay_composite` and `overlay_mix` shaders in
+HLSL and MSL.
 
 The existing `effectMix` also multiplies overlay opacity. Consequently:
 
@@ -129,8 +132,10 @@ On Metal, overlay upload textures carry the serial of their most recent GPU
 read. A command-buffer completion handler publishes the completed serial and
 an upload refuses a texture still in flight. That tracking is private to the
 Metal backend and only applies to resources named `overlay.*`; camera upload
-behaviour and the public RHI are unchanged. D3D11 relies on the same fixed-ring
-ownership contract through its backend upload path.
+behaviour and the public RHI are unchanged. On D3D11, overlay textures use a
+CPU-write staging texture mapped with `D3D11_MAP_FLAG_DO_NOT_WAIT`; a successful
+map enqueues a copy to the sampleable texture, while a busy map leaves the
+last-good frame in place. Camera upload behaviour is unchanged there as well.
 
 ---
 

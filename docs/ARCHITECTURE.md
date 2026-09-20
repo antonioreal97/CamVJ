@@ -233,8 +233,9 @@ capture hardware and decoded overlay PNGs originate in system memory. It is a
 copy into a BGRA8 texture. Camera scaling, aspect handling, mirroring and the
 vertical flip that bottom-up capture stacks need happen on the GPU in
 `source_blit`; overlay placement and alpha composition happen on the GPU in
-`overlay_composite`. PNG decode is background control work, never image
-processing on the frame thread.
+`overlay_composite`. A live overlay replacement first mixes old and new art in
+`overlay_mix`, then applies layer opacity once in `overlay_composite`. PNG
+decode is background control work, never image processing on the frame thread.
 
 ---
 

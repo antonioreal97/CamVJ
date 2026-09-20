@@ -80,7 +80,7 @@ retorna 1. Metadados parciais geram avisos. Validação Windows ainda pendente.
 
 ## Shaders em runtime
 
-15 shaders por backend (mais `common` e, no HLSL, `fullscreen`).
+16 shaders por backend (mais `common` e, no HLSL, `fullscreen`).
 `--check-shaders` compila todos e imprime a contagem.
 
 Ordem de busca: `ATEMFX_SHADER_DIR` → `shaders/` ao lado do exe (até 5

@@ -1,5 +1,6 @@
 #include "overlays/overlay_library.h"
 #include "overlays/overlay_platform.h"
+#include "core/Paths.h"
 
 #include <atomic>
 #include <chrono>
@@ -107,6 +108,17 @@ void checkImportScanAndOrdering(const fs::path& root)
     OverlayLibrary rescanned(root / "managed");
     expect(rescanned.scan(error) && rescanned.find(imported.id),
            "published manifests survive a fresh library scan");
+
+    const fs::path unicodeStill = root / fs::path(u8"marca-ação.png");
+    writeMarker(unicodeStill, "L-unicode");
+    OverlayImportRequest unicodeRequest;
+    unicodeRequest.name = pathToUtf8(unicodeStill.stem());
+    unicodeRequest.sources.push_back({OverlayAspect::Landscape16x9, unicodeStill, false});
+    OverlayAsset unicodeAsset;
+    expect(unicodeRequest.name == "marca-ação" &&
+               library.importAsset(unicodeRequest, unicodeAsset, error) &&
+               unicodeAsset.name == unicodeRequest.name,
+           "native Unicode filenames become UTF-8 overlay names");
 
     const fs::path sequence = root / "sequence";
     writeMarker(sequence / "frame10.png", "L-ten");

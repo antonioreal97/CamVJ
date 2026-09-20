@@ -130,6 +130,8 @@ set(ATEMFX_SOURCES
     src/video/program_output.cpp
     src/video/program_output.h
     src/video/virtual_camera.h
+    src/video/program_recorder.cpp
+    src/video/program_recorder.h
 
     src/effects/BuiltinEffects.cpp
     src/effects/BuiltinEffects.h
@@ -211,6 +213,7 @@ if(ATEMFX_BACKEND STREQUAL "d3d11")
         src/video/win32/CameraCaptureMF.cpp
         src/overlays/win32/overlay_platform_win.cpp
         src/video/virtual_camera_stub.cpp
+        src/video/program_recorder_stub.cpp
         src/tracking/tracker_stub.cpp)
 else()
     list(APPEND ATEMFX_SOURCES
@@ -222,6 +225,7 @@ else()
         src/video/mac/CameraCaptureAVF.mm
         src/overlays/mac/overlay_platform_mac.mm
         src/video/mac/virtual_camera_mac.mm
+        src/video/mac/program_recorder_mac.mm
         src/tracking/mac/VisionTracker.mm)
 endif()
 
@@ -277,6 +281,7 @@ else()
         src/video/mac/CameraCaptureAVF.mm
         src/overlays/mac/overlay_platform_mac.mm
         src/video/mac/virtual_camera_mac.mm
+        src/video/mac/program_recorder_mac.mm
         src/tracking/mac/VisionTracker.mm
         "${imgui_SOURCE_DIR}/backends/imgui_impl_osx.mm"
         "${imgui_SOURCE_DIR}/backends/imgui_impl_metal.mm")
@@ -442,6 +447,19 @@ if(BUILD_TESTING)
     endforeach()
     add_test(NAME source_health COMMAND source_health_test)
     add_test(NAME program_output COMMAND program_output_test)
+
+    # File naming and the disk arithmetic behind the REC panel. The encoder
+    # itself is verified by recording, not here: see docs/RECORDING.md.
+    add_executable(program_recorder_test
+        tests/program_recorder_test.cpp
+        src/video/program_recorder.cpp)
+    target_include_directories(program_recorder_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    if(MSVC)
+        target_compile_options(program_recorder_test PRIVATE /W4 /permissive- /utf-8)
+    else()
+        target_compile_options(program_recorder_test PRIVATE -Wall -Wextra)
+    endif()
+    add_test(NAME program_recorder COMMAND program_recorder_test)
 
     add_executable(scene_preset_test
         tests/scene_preset_test.cpp

@@ -128,7 +128,7 @@ Toda mudança: `atem_fx --headless --frames 200`. Sem display, sem hardware.
 Em PR/push para `main`, o mesmo gate roda no Actions self-hosted macOS
 (`.github/workflows/ci.yml`), junto com CTest e `--check-shaders`.
 Para a lógica portátil, `ctest --test-dir build --output-on-failure` executa
-10 testes com `BUILD_TESTING=ON` (default), incluindo `scene_preset`,
+11 testes com `BUILD_TESTING=ON` (default), incluindo `scene_preset`,
 `overlay_playback`, `overlay_compositor` e `overlay_library`. Nenhum precisa
 de GPU ou Catch2, e nenhum substitui o gate de renderização.
-`--check-shaders` compila os 15 shaders do backend sem abrir fonte de vídeo.
+`--check-shaders` compila os 16 shaders do backend sem abrir fonte de vídeo.

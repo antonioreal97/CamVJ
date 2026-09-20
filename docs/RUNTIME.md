@@ -604,12 +604,12 @@ shaders/hlsl/   common.hlsli fullscreen.hlsl test_pattern.hlsl
                 passthrough.hlsl rgb_split.hlsl pixelate.hlsl fm_raster.hlsl
                 subpixel.hlsl shutter.hlsl frame_delay.hlsl vhs.hlsl crt.hlsl
                 mirror.hlsl auto_frame.hlsl crossfade.hlsl source_blit.hlsl
-                overlay_composite.hlsl
+                overlay_composite.hlsl overlay_mix.hlsl
 shaders/metal/  common.metal test_pattern.metal
                 passthrough.metal rgb_split.metal pixelate.metal fm_raster.metal
                 subpixel.metal shutter.metal frame_delay.metal vhs.metal
                 crt.metal mirror.metal auto_frame.metal crossfade.metal
-                source_blit.metal overlay_composite.metal
+                source_blit.metal overlay_composite.metal overlay_mix.metal
 ```
 
 A more detailed tree is in `memory-bank/file-map.md`.

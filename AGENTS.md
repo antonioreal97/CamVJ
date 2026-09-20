@@ -30,7 +30,7 @@ when the architecture or milestone status changes.
 | Shaders       | HLSL (SM 5.0) / MSL                     | yes                    |
 | UI            | Dear ImGui                              | yes (only third-party) |
 | Logs          | spdlog                                  | **planned** — `src/core/Log.cpp` is a printf wrapper with spdlog-shaped macros |
-| Tests         | Standalone C++ checks / Catch2 planned   | ten portable checks via CTest, including presets and overlays; `--headless` remains the rendering gate |
+| Tests         | Standalone C++ checks / Catch2 planned   | eleven portable checks via CTest, including presets, overlays and recording; `--headless` remains the rendering gate |
 | Config        | Scoped hand-written JSON                | scene presets, venue boot and overlay manifests; no general app config |
 | SDI           | Blackmagic DeckLink SDK (M1+)           | optional Windows discovery; capture/playback **planned** |
 | ATEM control  | Blackmagic ATEM SDK (M4+)               | **planned**            |
@@ -133,6 +133,10 @@ FX-026 is the deliberately narrow early opening of M6: a managed, bounded
 four-layer PNG overlay compositor. It does not authorise Fill/Key, blend modes,
 arbitrary transforms, video layers or a layer graph. See `docs/OVERLAYS.md`.
 
+FX-027 is a second narrow exception: PROGRAM to one ProRes 422 HQ file. It
+does not authorise audio, other codecs, streaming, or recording the source or
+preview buses. See `docs/RECORDING.md`.
+
 Do not create `main.cpp` with 5000 lines. Follow the tree in
 `docs/ARCHITECTURE.md` and the file map in `docs/RUNTIME.md`.
 
@@ -179,4 +183,5 @@ Do not create `main.cpp` with 5000 lines. Follow the tree in
 - Development camera is a Sony ILME-FX30 in USB Streaming (UVC 1080p30). macOS discovery must include `ExternalUnknown`; session presets often claim 1080p then deliver no frames — pick 1920×1080 from the device format list. Camera hotplug is AVFoundation notifications polled between frames, not DeckLink.
 - The binary stays `atem_fx` and the bundle id `fx.atem.engine` so macOS camera permission is not invalidated. Dock icon is `assets/macos/CamVJ.icns` from `assets/files/camvj-icon-1024.png`. Brand rules live in `assets/files/IDENTIDADE.md`.
 - PROGRAM as a webcam is a client of an already installed camera extension (OBS's), never one we install: an unsigned build cannot ship a system extension, so `src/video/mac/virtual_camera_mac.mm` pushes into that extension's CoreMediaIO sink stream and call applications list the device under OBS's name. 1920x1080 BGRA, one sender at a time, bounded by pool and queue so a slow consumer costs dropped frames and never a stall. See `docs/VIRTUAL_CAMERA.md`.
+- Recording (FX-027) takes PROGRAM from the same point as the webcam and never blocks it: `src/video/mac/program_recorder_mac.mm` converts to 10-bit 4:2:2 Y'CbCr (`x422`, Rec.709, video range) in two passes on the processing command buffer and hands buffers to an `AVAssetWriter` on a serial queue. Pool of 8 buffers; a slow disk costs dropped frames. Fragmented `.mov` so a crash leaves a playable file; closing the file on quit is bounded. See `docs/RECORDING.md`.
 - Operator packages: `scripts/package_macos.sh` → `dist/CamVJ-<ver>-macos-<arch>.dmg` ships first (unsigned). Windows ZIP via `scripts/package_windows.ps1` is planned and not shipped yet. Merge CI is `.github/workflows/ci.yml` on a self-hosted macOS ARM64 Metal runner (`[self-hosted, macOS, ARM64]`): Release build, CTest, `--check-shaders`, `--headless --frames 200`. Branch protection requires the check named `macos`; no CD and no Windows CI yet.

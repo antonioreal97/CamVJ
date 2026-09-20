@@ -209,15 +209,20 @@ M6 aberto cedo só para gráficos RGBA limitados:
   conta underflow — nunca espera.
 - Metal rastreia serial de leitura/conclusão apenas para texturas `overlay.*`,
   sem ampliar `Rhi.h` nem mudar upload de câmera.
+- D3D11 usa staging CPU-write e map não bloqueante para uploads de overlay;
+  ocupação conserva o último quadro. Validação nativa Windows ainda pendente.
 - Compositor GPU depois da chain e antes de PROGRAM, alpha premultiplicado.
   Clean usa o mesmo `effectMix`; Freeze/Black mantêm a pilha rodando; padrão
-  LED Mapping faz bypass. `chainPreview` inclui overlays.
+  LED Mapping faz bypass. `chainPreview` inclui overlays. Uma troca ao vivo
+  mistura as duas artes em `overlay_mix` antes de aplicar a opacidade da layer
+  uma única vez em `overlay_composite`.
 - Sidebar OVERLAYS entre PRESETS e EFFECTS; library e layer usam o inspector
   largo. Import não leva ao ar. Operation lock protege biblioteca/estrutura.
 - Scene preset schema v2 guarda a pilha; v1 carrega pilha vazia. Factory looks
   limpam overlays por terem stack vazio.
 - CTests: `overlay_playback`, `overlay_compositor`, `overlay_library`; shaders
-  `overlay_composite` em HLSL/MSL. macOS verificado; Windows escrito, não validado.
+  `overlay_composite` e `overlay_mix` em HLSL/MSL. macOS verificado; Windows
+  escrito, não validado.
 
 ## Prioridade ativa: macOS primeiro
 
@@ -298,10 +303,17 @@ Usar isso. Não marcar FX-007/008/009 como feitos.
 ```
 
 Obrigatório em macOS com GPU antes de chamar qualquer mudança de código de
-feita. O gate de FX-026 passou em 2026-09-15 no Apple M4: CTest 10/10,
+feita. O gate final de FX-026 passou em 2026-09-18 no Apple M4: CTest 10/10,
 `--check-shaders` 15/15 e 200 frames com `auto_frame` default ligado e stack
-de overlays vazio. A etapa FX-010 também tinha passado em 2026-09-08 fora
+de overlays vazio (0,447 ms de processamento GPU). A janela do build Release
+também foi inspecionada com OVERLAYS entre PRESETS e EFFECTS. A etapa FX-010
+também tinha passado em 2026-09-08 fora
 do sandbox: Apple M4, 200 frames, 1,131 ms de processamento GPU, build Release
 e 20 verificações de CLI; CMake rejeitou DeckLink habilitado em plataforma não
 suportada. A validação de DeckLink e dos diagnósticos Unicode no Windows
 continua pendente.
+
+O gate de regressão de 2026-09-19 no Apple M4 passou: CTest 11/11,
+`--check-shaders` 16/16 e `--headless --frames 200` (1,045 ms de processamento
+GPU com a pilha vazia). O teste da biblioteca agora cobre nomes Unicode.
+A validação nativa do picker e do upload D3D11 no Windows segue pendente.

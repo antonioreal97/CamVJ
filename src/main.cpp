@@ -111,6 +111,8 @@ void printUsage()
         "  --pattern NAME      test pattern: bars, plasma, grid or led-mapping\n"
         "  --output ID         send the processed frame to this display\n"
         "  --webcam            send PROGRAM as OBS Virtual Camera (macOS)\n"
+        "  --record            record PROGRAM to ProRes 422 HQ from the first frame (macOS)\n"
+        "  --record-dir PATH   folder for recordings (default ~/Movies/CamVJ)\n"
         "  --program MODE      start PROGRAM in fx, clean, freeze or black\n"
         "  --list-sources      list the available video inputs and exit\n"
         "  --list-displays     list the available displays and exit\n"
@@ -196,6 +198,16 @@ bool parseArguments(int argc, char** argv, CommandLineOptions& command, bool& sh
             hasRenderOptions = true;
             options.webcam = true;
         }
+        else if (argument == "--record")
+        {
+            hasRenderOptions = true;
+            options.record = true;
+        }
+        else if (argument == "--record-dir" && i + 1 < argc)
+        {
+            hasRenderOptions = true;
+            options.recordDirectory = argv[++i];
+        }
         else if (argument == "--program" && i + 1 < argc)
         {
             hasRenderOptions = true;
@@ -268,6 +280,11 @@ bool parseArguments(int argc, char** argv, CommandLineOptions& command, bool& sh
     if (options.checkShaders && options.webcam)
     {
         std::fprintf(stderr, "--webcam cannot be combined with --check-shaders.\n");
+        return false;
+    }
+    if (options.checkShaders && options.record)
+    {
+        std::fprintf(stderr, "--record cannot be combined with --check-shaders.\n");
         return false;
     }
     if (options.testPattern >= 0 && !options.sourceId.empty() &&

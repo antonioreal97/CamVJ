@@ -112,11 +112,13 @@ struct DecodeControl
     std::atomic<bool> active{false};
     std::atomic<std::uint32_t> desiredFrame{0};
     std::atomic<int> desiredAspect{0};
+    std::atomic<std::uint64_t> requestEpoch{1};
 
     // Worker-only cache. These fields are never read by the render thread.
     bool workerHaveRequest = false;
     std::uint32_t workerFrame = 0;
     int workerAspect = 0;
+    std::uint64_t workerEpoch = 0;
 };
 
 struct DecodeResult
@@ -125,6 +127,7 @@ struct DecodeResult
     std::uint64_t  generation = 0;
     OverlayAspect  aspect = OverlayAspect::Landscape16x9;
     std::uint32_t  frame = 0;
+    std::uint64_t  requestEpoch = 0;
     bool            ok = false;
     DecodedOverlayImage image;
     std::string     error;
@@ -224,8 +227,9 @@ private:
                 const auto aspect = aspectValue == 1 ? OverlayAspect::Portrait9x16
                                                      : OverlayAspect::Landscape16x9;
                 const std::uint32_t desired = control->desiredFrame.load(std::memory_order_acquire);
+                const std::uint64_t epoch = control->requestEpoch.load(std::memory_order_acquire);
                 if (control->workerHaveRequest && control->workerAspect == aspectValue &&
-                    control->workerFrame == desired)
+                    control->workerFrame == desired && control->workerEpoch == epoch)
                     continue;
 
                 const OverlayVariant* variant = control->asset.variant(aspect);
@@ -234,6 +238,7 @@ private:
                     control->workerHaveRequest = true;
                     control->workerAspect = aspectValue;
                     control->workerFrame = desired;
+                    control->workerEpoch = epoch;
                     continue;
                 }
 
@@ -245,6 +250,7 @@ private:
                 result->generation = control->generation;
                 result->aspect = aspect;
                 result->frame = static_cast<std::uint32_t>(frame);
+                result->requestEpoch = epoch;
                 result->error.clear();
                 result->ok = decodeOverlayPng(variant->frames[frame], result->image,
                                               result->error);
@@ -261,6 +267,7 @@ private:
                 control->workerHaveRequest = true;
                 control->workerAspect = aspectValue;
                 control->workerFrame = desired;
+                control->workerEpoch = epoch;
                 didWork = true;
             }
 
@@ -379,6 +386,34 @@ struct OverlaySystem::Impl
                 result = nullptr;
             }
         }
+    }
+
+    void clearSequenceTextures(Layer& layer)
+    {
+        if (layer.asset.kind != OverlayKind::PngSequence) return;
+        for (std::size_t aspect = 0; aspect < kAspectCount; ++aspect)
+        {
+            layer.currentTexture[aspect] = nullptr;
+            layer.previousTexture[aspect] = nullptr;
+            layer.displayedFrame[aspect] = 0;
+            layer.replacementLinear[aspect] = 0.0f;
+            layer.awaitingReplacement[aspect] = false;
+            layer.replacementActive[aspect] = false;
+        }
+        layer.playback.setReady(false);
+    }
+
+    void resetSequenceRuntime(Layer& layer)
+    {
+        if (layer.asset.kind != OverlayKind::PngSequence) return;
+        if (layer.decode)
+        {
+            layer.decode->active.store(false, std::memory_order_release);
+            layer.decode->requestEpoch.fetch_add(1, std::memory_order_acq_rel);
+        }
+        releasePending(layer);
+        clearSequenceTextures(layer);
+        layer.error.clear();
     }
 
     void detach(Layer& layer)
@@ -504,6 +539,7 @@ struct OverlaySystem::Impl
 
     UploadSlot* uploadDecoded(EffectContext& context, Layer& layer, DecodeResult& result)
     {
+        const std::size_t index = aspectIndex(result.aspect);
         auto trySlots = [&](auto& slots) -> UploadSlot* {
             for (UploadSlot& slot : slots)
             {
@@ -511,16 +547,25 @@ struct OverlaySystem::Impl
                     slot.texture->width() != result.image.width ||
                     slot.texture->height() != result.image.height)
                     continue;
-                // Metal returns false while a fixed-ring slot is still being
-                // sampled by an unfinished command buffer; D3D11's DISCARD
-                // path normally succeeds immediately. Neither path waits.
+                // A live variant replacement needs two distinct textures for
+                // the whole dissolve. The first replacement frame must not
+                // overwrite the current image, and later sequence frames must
+                // not recycle the retained previous image until the dissolve
+                // releases it.
+                if ((layer.awaitingReplacement[index] &&
+                     slot.texture == layer.currentTexture[index]) ||
+                    (layer.replacementActive[index] &&
+                     slot.texture == layer.previousTexture[index]))
+                    continue;
+                // Both backends may reject a busy fixed-ring slot. Metal
+                // tracks in-flight sampling; D3D11 maps a staging texture
+                // with DO_NOT_WAIT. Neither path stalls the render thread.
                 if (context.targets->upload(*slot.texture, result.image.bgra8.data(),
                                             result.image.rowBytes))
                     return &slot;
             }
             return nullptr;
         };
-        const std::size_t index = aspectIndex(result.aspect);
         if (layer.asset.kind == OverlayKind::PngSequence)
             return trySlots(sequenceUploads[index]);
         return trySlots(staticUploads[layer.resourceSlot][index]);
@@ -529,7 +574,17 @@ struct OverlaySystem::Impl
     void acceptDecoded(EffectContext& context, DecodeResult* result)
     {
         Layer* layer = findLayer(result->layerId);
-        if (!layer || result->generation != layer->generation)
+        if (!layer || result->generation != layer->generation || !layer->decode ||
+            result->requestEpoch !=
+                layer->decode->requestEpoch.load(std::memory_order_acquire))
+        {
+            decoder.retire(result);
+            return;
+        }
+        // An old sequence can finish decoding after its envelope has reached
+        // zero. Its shared upload ring may already belong to another layer.
+        if (layer->asset.kind == OverlayKind::PngSequence &&
+            layer->playback.phase() == OverlayLayerPhase::Disabled)
         {
             decoder.retire(result);
             return;
@@ -582,6 +637,12 @@ struct OverlaySystem::Impl
         for (std::size_t i = 0; i < layerCount; ++i)
         {
             Layer& layer = layers[i];
+            if (layer.asset.kind == OverlayKind::PngSequence &&
+                layer.playback.phase() == OverlayLayerPhase::Disabled)
+            {
+                releasePending(layer);
+                continue;
+            }
             for (std::size_t a = 0; a < kAspectCount; ++a)
             {
                 DecodeResult* result = layer.pending[a];
@@ -741,6 +802,7 @@ void OverlaySystem::setLibrary(const OverlayLibrary& library)
         impl_->decoder.detach(layer.decode);
         impl_->releasePending(layer);
         layer.asset = std::move(refreshed);
+        layer.playback.setFrameCount(impl_->assetFrameCount(layer.asset));
         // Keep the last-good texture live while the replacement/additional
         // variant is decoded and uploaded. Importing an unrelated asset does
         // not touch this layer at all.
@@ -883,6 +945,15 @@ bool OverlaySystem::setLayerEnabled(OverlayLayerId layerId, bool enabled, std::s
         error = "Another PNG sequence is active or fading out";
         return false;
     }
+    if (enabled && layer->asset.kind == OverlayKind::PngSequence &&
+        layer->playback.phase() == OverlayLayerPhase::Disabled)
+    {
+        // Sequence upload textures are shared by every sequence layer. A
+        // disabled layer must invalidate its decoder request before going live
+        // so it cannot briefly expose a ring slot since reused by another
+        // asset, or be suppressed by the worker's last-request cache.
+        impl_->resetSequenceRuntime(*layer);
+    }
     layer->pendingRemoval = false;
     layer->config.enabled = enabled;
     if (enabled && layer->asset.kind == OverlayKind::PngSequence &&
@@ -941,6 +1012,9 @@ bool OverlaySystem::triggerLayer(OverlayLayerId layerId, std::string& error)
         error = "Another PNG sequence is active or fading out";
         return false;
     }
+    if (layer->asset.kind == OverlayKind::PngSequence &&
+        layer->playback.phase() == OverlayLayerPhase::Disabled)
+        impl_->resetSequenceRuntime(*layer);
     layer->config.enabled = true;
     layer->pendingRemoval = false;
     layer->playback.restart();
@@ -1010,6 +1084,16 @@ void OverlaySystem::service(EffectContext& context)
         const bool autoDisabled = layer.playback.advance(context.deltaTime);
         if (autoDisabled) layer.config.enabled = false;
 
+        if (layer.asset.kind == OverlayKind::PngSequence &&
+            layer.playback.phase() == OverlayLayerPhase::Disabled)
+        {
+            // Shared sequence-ring pointers are only borrowed while a layer is
+            // visible. Releasing them at zero opacity prevents a later layer
+            // from making this disabled one point at unrelated pixels.
+            impl_->releasePending(layer);
+            impl_->clearSequenceTextures(layer);
+        }
+
         if (layer.replacementActive[aspectSlot])
         {
             const float step = std::max(context.deltaTime, 0.0f) / kOverlayFadeSeconds;
@@ -1052,7 +1136,7 @@ void OverlaySystem::service(EffectContext& context)
 GpuTexture& OverlaySystem::composite(EffectContext& context, GpuTexture& input,
                                      float effectMix, bool bypass)
 {
-    std::array<OverlayCompositeLayer, kMaxOverlayLayers * 2U> renderLayers{};
+    std::array<OverlayCompositeLayer, kMaxOverlayLayers> renderLayers{};
     std::size_t count = 0;
     const OverlayAspect aspect = aspectFor(context);
     const std::size_t index = aspectIndex(aspect);
@@ -1065,8 +1149,8 @@ GpuTexture& OverlaySystem::composite(EffectContext& context, GpuTexture& input,
         if (layer.replacementActive[index] && layer.previousTexture[index])
         {
             const float mix = easedMix(layer.replacementLinear[index]);
-            renderLayers[count++] = {layer.previousTexture[index], aspect, opacity * (1.0f - mix)};
-            renderLayers[count++] = {texture, aspect, opacity * mix};
+            renderLayers[count++] = {texture, aspect, opacity,
+                                     layer.previousTexture[index], mix};
         }
         else
         {

@@ -103,6 +103,29 @@ void OverlayPlaybackState::setFramesPerSecond(float framesPerSecond)
                                   kMinFramesPerSecond, kOverlaySequenceFps);
 }
 
+void OverlayPlaybackState::setPlayback(OverlayPlayback playback)
+{
+    if (playback_ == playback) return;
+    if (kind_ == OverlayKind::PngSequence && frameCount_ > 0 &&
+        playback == OverlayPlayback::OneShot)
+    {
+        // A looping clock is cumulative. One-shot should finish the current
+        // iteration, not instantly fade out because earlier loops elapsed.
+        const double duration = static_cast<double>(frameCount_) /
+                                static_cast<double>(framesPerSecond_);
+        elapsedSeconds_ = std::fmod(elapsedSeconds_, duration);
+    }
+    if (playback == OverlayPlayback::Loop && oneShotEnding_)
+    {
+        // Changing the transport back to Loop during the final fade should
+        // revive the layer instead of leaving it disabled at the end.
+        oneShotEnding_ = false;
+        enabledRequested_ = true;
+        if (ready_) beginFadeIn();
+    }
+    playback_ = playback;
+}
+
 void OverlayPlaybackState::restart()
 {
     elapsedSeconds_   = 0.0;

@@ -93,10 +93,12 @@ paces frames; the numbers above are the bar the timings are judged against.
 
 ## Explicitly out of scope for V1
 
-AI, general or unbounded layer graphs, particles, NDI, streaming, recording,
-timeline editing, eight simultaneous cameras, blend modes, Fill/Key output,
-LUTs, OSC and Stream Deck. The bounded four-layer PNG overlay stack is the
-deliberate exception, not a general compositor editor.
+AI, general or unbounded layer graphs, particles, NDI, streaming, general
+recording, timeline editing, eight simultaneous cameras, blend modes, Fill/Key
+output, LUTs, OSC and Stream Deck. The bounded four-layer PNG overlay stack is
+a deliberate exception, not a general compositor editor. Recording PROGRAM to
+a single ProRes 422 HQ file (FX-027, `docs/RECORDING.md`) is the other one: no
+audio, no codec choice, no ISO recording.
 
 ---
 
