@@ -2,6 +2,19 @@
 
 ## Foco
 
+Pedido 2026-09-19: **Face Mosaic** (efeito VJ com rostos do público).
+Decisões do usuário: `SpritePass` instanciado na RHI (segundo primitivo, até
+64 quads, premultiplied over, entry `sprite_fragment` em MSL e HLSL); fases
+1, 2, 4 e 5 agora, **feedback espera o M2 (FX-008), presets o M3**; detector
+Vision no macOS, Windows sem detector. Fase 1 entregue: `FaceSensor` +
+`FaceTrackManager` (ids), `EffectContext::faces`, `Effect::inputs()` genérico
+(App liga o sensor só com nó habilitado pedindo rostos), `face_mosaic` logo
+após `auto_frame`, desligado. Verificado headless: CTest 9/9 (`face_tracks`
+19, `face_tiles` 18), shaders 16/16, headless 200, probe sintético revertido,
+64 tiles = 0,54 ms GPU. **Não verificado:** câmera ao vivo com público;
+D3D11 escrito e não compilado. Plano: `docs/plans/2026-09-19-face-mosaic.md`.
+Próximo: fase 2 (histórico de frames, delay por tile, lifetime, spawn).
+
 Pedido 2026-09-15 (continuação PR #4): **webcam OBS Starting/Stopping/FAIL**.
 Evidência: OUTPUT colapsava busy em `"Working"`; `Failed` virava `Stopped`
 antes do draw. Entregue tallies START/LIVE/STOP/FAIL, fault sticky magenta,

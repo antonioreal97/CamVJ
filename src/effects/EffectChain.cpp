@@ -111,6 +111,19 @@ std::size_t EffectChain::enabledCount() const
     return count;
 }
 
+uint32_t EffectChain::enabledInputs() const
+{
+    uint32_t inputs = kEffectInputNone;
+    for (const std::unique_ptr<Effect>& effect : effects_)
+    {
+        if (effect->enabled())
+        {
+            inputs |= effect->inputs();
+        }
+    }
+    return inputs;
+}
+
 GpuTexture& EffectChain::process(EffectContext& context, GpuTexture& input, float effectMix,
                                   bool bypassEffects)
 {

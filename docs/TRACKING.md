@@ -303,6 +303,28 @@ in this engine uses the top left.
 
 ---
 
+## Faces (Face Mosaic)
+
+The subject tracker follows one person for the framing. The Face Mosaic needs
+the opposite: every face in the crowd, each with an identity, and no say over
+the framing. That is a second sensor, `FaceSensor`
+(`src/tracking/FaceSensor.h`, Vision in `mac/VisionFaceSensor.mm`), built on
+the same rules as the tracker: it reads the CPU frames capture already has, on
+its own thread, 15 detections a second, and publishes a fixed-size
+`FacesSnapshot` that App maps onto the canvas and copies into
+`EffectContext::faces`. One frame observer feeds both sensors; each returns at
+once for a frame it does not want.
+
+Identities come from `FaceTrackManager` (`src/tracking/face_tracks.*`, CTest
+`face_tracks`): greedy association by IoU against velocity-predicted boxes,
+with a centre-distance fallback for heads that move more than their width
+between detections. A new face needs two hits before it is published; a lost
+one expires after 0.5 s; a returning face gets a new id. A camera change
+drops every track.
+
+The sensor idles unless an enabled node reads faces, so a show that never
+uses the mosaic pays nothing for it. Faces never reach the framing controller.
+
 ## The Windows gap
 
 Windows is the production platform and it has no detector. `createSubjectTracker()`

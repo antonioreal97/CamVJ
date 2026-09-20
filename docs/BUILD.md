@@ -129,7 +129,7 @@ Every change must at least pass this before it is called done:
 
 ### Portable checks (CTest)
 
-`BUILD_TESTING=ON` (the default) builds five standalone test executables from
+`BUILD_TESTING=ON` (the default) builds nine standalone test executables from
 `tests/` and registers them in CTest:
 
 | Test | Source | What it covers |
@@ -139,6 +139,10 @@ Every change must at least pass this before it is called done:
 | `source_mapping` | `source_mapping_test.cpp` | source pixels to canvas coordinates |
 | `source_health` | `source_health_test.cpp` | input-loss and reconnect policy |
 | `program_output` | `program_output_test.cpp` | the PROGRAM state machine and the FX/Clean dissolve |
+| `display_routing` | `display_routing_test.cpp` | choosing and following the output display |
+| `virtual_camera_status` | `virtual_camera_status_test.cpp` | the webcam tallies (Starting / Sending / Stopping / FAIL) |
+| `face_tracks` | `face_tracks_test.cpp` | face identities: IoU and distance association, expiry, capacity |
+| `face_tiles` | `face_tiles_test.cpp` | Face Mosaic tiles: copies, budgets, fades, stable layout, placement area |
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON

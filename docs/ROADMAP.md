@@ -33,7 +33,8 @@ validation.
 - Linear `EffectChain` + `EffectRegistry` + generic `ParameterSet` UI.
 - Effects: Passthrough, RGB Split, Pixelate, Mirror — each with HLSL and MSL.
   (`fm_raster`, `subpixel`, `shutter`, `frame_delay`, `vhs`, `crt` and
-  `auto_frame` were added afterwards, on the same abstraction: eleven today.)
+  `auto_frame` were added afterwards, on the same abstraction, then
+  `face_mosaic`: twelve today.)
 - ImGui panels: Source, Effects (add/remove/reorder), Preview, Stats.
 - CPU and GPU timing. Measured on macOS, Apple M4, 1920×1080: 3000 frames at
   134 fps with vsync, 0.7 ms of GPU processing against a 16.68 ms budget.
@@ -172,6 +173,21 @@ processor and Windows validation remain separate acceptance work.
 
 Like the extensions before it, this is bounded work on the linear chain. It
 does not open M2, M3 or M5, and it does not reduce what M1 owes.
+
+### Face Mosaic (crowd faces)
+
+Requested on 2026-09-19: a live-camera VJ effect that copies every face in the
+audience across the frame. Plan, decisions and measurements in
+[plans/2026-09-19-face-mosaic.md](plans/2026-09-19-face-mosaic.md).
+
+Phase 1 is in: a Vision face sensor with persistent ids, the `face_mosaic`
+effect, and `SpritePass`, the one RHI addition, decided with the user rather
+than added in passing. Verified headless (CTest, shaders, a synthetic-face
+probe, 64 tiles at 0.54 ms GPU); **not yet with a live crowd**, and the D3D11
+half is not compiled.
+
+Like the tracking extension this is bounded. Its feedback phase is FX-008 and
+waits for M2; its presets wait for M3. It opens neither.
 
 ### What M2 is *not*
 
