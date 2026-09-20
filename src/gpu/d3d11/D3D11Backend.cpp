@@ -97,7 +97,8 @@ bool D3D11Texture::create(ID3D11Device* device, uint32_t width, uint32_t height,
     return true;
 }
 
-bool D3D11Texture::createUploadable(ID3D11Device* device, uint32_t width, uint32_t height)
+bool D3D11Texture::createUploadable(ID3D11Device* device, uint32_t width, uint32_t height,
+                                    bool nonBlockingOverlay)
 {
     release();
 
@@ -108,9 +109,9 @@ bool D3D11Texture::createUploadable(ID3D11Device* device, uint32_t width, uint32
     desc.ArraySize        = 1;
     desc.Format           = DXGI_FORMAT_B8G8R8A8_UNORM;
     desc.SampleDesc.Count = 1;
-    desc.Usage            = D3D11_USAGE_DYNAMIC;
+    desc.Usage            = nonBlockingOverlay ? D3D11_USAGE_DEFAULT : D3D11_USAGE_DYNAMIC;
     desc.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
-    desc.CPUAccessFlags   = D3D11_CPU_ACCESS_WRITE;
+    desc.CPUAccessFlags   = nonBlockingOverlay ? 0 : D3D11_CPU_ACCESS_WRITE;
 
     if (!ATEMFX_CHECK_HR(device->CreateTexture2D(&desc, nullptr, texture_.GetAddressOf()),
                          "CreateTexture2D(upload)") ||
@@ -121,6 +122,21 @@ bool D3D11Texture::createUploadable(ID3D11Device* device, uint32_t width, uint32
         return false;
     }
 
+    if (nonBlockingOverlay)
+    {
+        D3D11_TEXTURE2D_DESC staging = desc;
+        staging.Usage = D3D11_USAGE_STAGING;
+        staging.BindFlags = 0;
+        staging.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        if (!ATEMFX_CHECK_HR(device->CreateTexture2D(&staging, nullptr,
+                                                     uploadStaging_.GetAddressOf()),
+                             "CreateTexture2D(overlay staging)"))
+        {
+            release();
+            return false;
+        }
+    }
+
     width_  = width;
     height_ = height;
     format_ = desc.Format;
@@ -129,6 +145,7 @@ bool D3D11Texture::createUploadable(ID3D11Device* device, uint32_t width, uint32
 
 void D3D11Texture::release()
 {
+    uploadStaging_.Reset();
     srv_.Reset();
     rtv_.Reset();
     texture_.Reset();
@@ -445,7 +462,9 @@ GpuTexture& D3D11TargetPool::uploadTarget(const std::string& key, uint32_t width
     // A camera can be swapped for one of another size, so the texture follows
     // the frame rather than the project.
     auto target = std::make_unique<D3D11Texture>();
-    if (device_ && width > 0 && height > 0 && target->createUploadable(device_, width, height))
+    const bool nonBlockingOverlay = key.starts_with("overlay.");
+    if (device_ && width > 0 && height > 0 &&
+        target->createUploadable(device_, width, height, nonBlockingOverlay))
     {
         ATEMFX_LOG_INFO("Allocated upload target '%s' (%ux%u)", key.c_str(), width, height);
     }
@@ -467,8 +486,14 @@ bool D3D11TargetPool::upload(GpuTexture& texture, const void* bgra8, std::size_t
         return false;
     }
 
+    ID3D11Texture2D* mappedTexture = destination.uploadStaging()
+        ? destination.uploadStaging() : destination.texture();
+    const D3D11_MAP mapType = destination.uploadStaging()
+        ? D3D11_MAP_WRITE : D3D11_MAP_WRITE_DISCARD;
+    const UINT mapFlags = destination.uploadStaging()
+        ? D3D11_MAP_FLAG_DO_NOT_WAIT : 0;
     D3D11_MAPPED_SUBRESOURCE mapped = {};
-    if (FAILED(context_->Map(destination.texture(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    if (FAILED(context_->Map(mappedTexture, 0, mapType, mapFlags, &mapped)))
     {
         return false;
     }
@@ -485,7 +510,14 @@ bool D3D11TargetPool::upload(GpuTexture& texture, const void* bgra8, std::size_t
         targetRow += mapped.RowPitch;
     }
 
-    context_->Unmap(destination.texture(), 0);
+    context_->Unmap(mappedTexture, 0);
+    if (destination.uploadStaging())
+    {
+        // CopyResource is queued on the immediate context. A busy staging
+        // slot is skipped by the non-blocking Map above; no CPU/GPU wait is
+        // introduced by the overlay upload path.
+        context_->CopyResource(destination.texture(), mappedTexture);
+    }
     return true;
 }
 

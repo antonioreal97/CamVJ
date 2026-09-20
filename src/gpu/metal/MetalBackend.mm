@@ -65,7 +65,8 @@ bool MetalTexture::create(id<MTLDevice> device, uint32_t width, uint32_t height,
     return true;
 }
 
-bool MetalTexture::createUploadable(id<MTLDevice> device, uint32_t width, uint32_t height)
+bool MetalTexture::createUploadable(id<MTLDevice> device, uint32_t width, uint32_t height,
+                                    bool trackGpuReads)
 {
     release();
 
@@ -86,7 +87,19 @@ bool MetalTexture::createUploadable(id<MTLDevice> device, uint32_t width, uint32
 
     width_  = width;
     height_ = height;
+    trackGpuReads_ = trackGpuReads;
     return true;
+}
+
+void MetalTexture::markGpuRead(std::uint64_t serial) const
+{
+    if (trackGpuReads_) lastReadSerial_.store(serial, std::memory_order_release);
+}
+
+bool MetalTexture::cpuWriteAvailable(std::uint64_t completedSerial) const
+{
+    return !trackGpuReads_ ||
+           lastReadSerial_.load(std::memory_order_acquire) <= completedSerial;
 }
 
 void MetalTexture::release()
@@ -94,6 +107,8 @@ void MetalTexture::release()
     texture_ = nil;
     width_   = 0;
     height_  = 0;
+    trackGpuReads_ = false;
+    lastReadSerial_.store(0, std::memory_order_relaxed);
 }
 
 // ---------------------------------------------------------------------------
@@ -275,7 +290,9 @@ bool MetalShaderLibrary::reloadAll(std::string& error)
 // MetalTargetPool
 // ---------------------------------------------------------------------------
 
-bool MetalTargetPool::create(id<MTLDevice> device, uint32_t width, uint32_t height, MTLPixelFormat format)
+bool MetalTargetPool::create(id<MTLDevice> device, uint32_t width, uint32_t height,
+                             MTLPixelFormat format,
+                             const std::atomic<std::uint64_t>* completedProcessingSerial)
 {
     release();
 
@@ -283,6 +300,7 @@ bool MetalTargetPool::create(id<MTLDevice> device, uint32_t width, uint32_t heig
     width_  = width;
     height_ = height;
     format_ = format;
+    completedProcessingSerial_ = completedProcessingSerial;
 
     for (MetalTexture& target : scratch_)
     {
@@ -307,6 +325,7 @@ void MetalTargetPool::release()
     device_ = nil;
     width_  = 0;
     height_ = 0;
+    completedProcessingSerial_ = nullptr;
 }
 
 GpuTexture& MetalTargetPool::scratch(std::size_t index)
@@ -345,7 +364,9 @@ GpuTexture& MetalTargetPool::uploadTarget(const std::string& key, uint32_t width
     // A camera can be swapped for one of another size, so the texture follows
     // the frame rather than the project.
     auto target = std::make_unique<MetalTexture>();
-    if (device_ && width > 0 && height > 0 && target->createUploadable(device_, width, height))
+    const bool trackGpuReads = key.starts_with("overlay.");
+    if (device_ && width > 0 && height > 0 &&
+        target->createUploadable(device_, width, height, trackGpuReads))
     {
         ATEMFX_LOG_INFO("Allocated upload target '%s' (%ux%u)", key.c_str(), width, height);
     }
@@ -363,6 +384,12 @@ bool MetalTargetPool::upload(GpuTexture& texture, const void* bgra8, std::size_t
 {
     MetalTexture& destination = static_cast<MetalTexture&>(texture);
     if (!destination.valid() || !bgra8)
+    {
+        return false;
+    }
+    if (destination.tracksGpuReads() && completedProcessingSerial_ &&
+        !destination.cpuWriteAvailable(
+            completedProcessingSerial_->load(std::memory_order_acquire)))
     {
         return false;
     }
@@ -450,12 +477,14 @@ void MetalFullscreenPass::draw(GpuTexture&            target,
     if (source)
     {
         const MetalTexture& input = static_cast<const MetalTexture&>(*source);
+        input.markGpuRead(owner_->processingSerial());
         [encoder setFragmentTexture:input.metal() atIndex:0];
     }
 
     if (history)
     {
         const MetalTexture& previous = static_cast<const MetalTexture&>(*history);
+        previous.markGpuRead(owner_->processingSerial());
         [encoder setFragmentTexture:previous.metal() atIndex:1];
     }
 
@@ -836,7 +865,8 @@ bool MetalDevice::initialize(Window* window, uint32_t processingWidth, uint32_t 
         return false;
     }
 
-    if (!targets_.create(device_, processingWidth, processingHeight, MTLPixelFormatRGBA16Float))
+    if (!targets_.create(device_, processingWidth, processingHeight, MTLPixelFormatRGBA16Float,
+                         &timing_->completedProcessingSerial))
     {
         return false;
     }
@@ -902,6 +932,7 @@ bool MetalDevice::beginFrame()
 
 void MetalDevice::beginProcessing()
 {
+    ++processingSerial_;
     processingCommands_ = [queue_ commandBuffer];
 }
 
@@ -915,6 +946,7 @@ void MetalDevice::endProcessing()
     // The completion handler runs on a background thread, so the result lands
     // in atomics rather than in members touched by the frame loop.
     std::shared_ptr<TimingState> timing = timing_;
+    const std::uint64_t serial = processingSerial_;
     [processingCommands_ addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
         const double milliseconds = (buffer.GPUEndTime - buffer.GPUStartTime) * 1000.0;
         if (milliseconds >= 0.0 && std::isfinite(milliseconds))
@@ -922,6 +954,7 @@ void MetalDevice::endProcessing()
             timing->milliseconds.store(static_cast<float>(milliseconds), std::memory_order_relaxed);
             timing->hasResult.store(true, std::memory_order_relaxed);
         }
+        timing->completedProcessingSerial.store(serial, std::memory_order_release);
     }];
 
     [processingCommands_ commit];

@@ -15,6 +15,7 @@ CamVJ/
 │   ├── ATEM_INTEGRATION.md      # design M4, não código
 │   ├── BUILD.md
 │   ├── EFFECT_SYSTEM.md
+│   ├── OVERLAYS.md               # biblioteca/import/playback/compositor FX-026
 │   ├── TRACKING.md              # tracking + framing (macOS ok, Windows sem detector)
 │   ├── PRODUCT.md
 │   ├── ROADMAP.md
@@ -38,6 +39,8 @@ CamVJ/
 │   │   ├── crt.hlsl             # scanlines + aperture grille, sem bloom
 │   │   ├── mirror.hlsl
 │   │   ├── crossfade.hlsl       # dissolve (cadeia e saída), wet t0 / dry t1
+│   │   ├── overlay_composite.hlsl # alpha premultiplicado dos overlays
+│   │   ├── overlay_mix.hlsl     # troca de variante antes da opacidade
 │   │   └── auto_frame.hlsl      # recorte do enquadramento
 │   └── metal/
 │       ├── common.metal         # prepended em todo fragment
@@ -53,11 +56,13 @@ CamVJ/
 │       ├── crt.metal
 │       ├── mirror.metal
 │       ├── crossfade.metal      # dissolve (cadeia e saída), wet t0 / dry t1
+│       ├── overlay_composite.metal # alpha premultiplicado dos overlays
+│       ├── overlay_mix.metal    # troca de variante antes da opacidade
 │       └── auto_frame.metal
 ├── src/
 │   ├── main.cpp
 │   ├── app/          App.h App.cpp
-│   ├── core/         Log.h Log.cpp Version.h   # versão vinda do CMake
+│   ├── core/         Log.h Log.cpp Version.h Paths.h/.cpp
 │   ├── decklink/     decklink_discovery.h
 │   │                 decklink_discovery_win.cpp decklink_discovery_stub.cpp
 │   │                 decklink_capture.h         # seam FX-011 (capture-only)
@@ -76,6 +81,8 @@ CamVJ/
 │   │                                            # ProgramTransition (cadeia) e o
 │   │                                            # dissolve de saída entre quadros
 │   │                 virtual_camera.h           # PROGRAM como webcam (interface)
+│   │                 program_recorder.h/.cpp    # gravação do PROGRAM (interface + política portátil)
+│   │                 mac/program_recorder_mac.mm # ProRes 422 HQ 10-bit via AVAssetWriter
 │   │                 virtual_camera_stub.cpp    # Windows: sem câmera virtual
 │   │                 mac/virtual_camera_mac.mm  # cliente do sink CoreMediaIO
 │   ├── effects/      Effect.h EffectParameters.h EffectRegistry.* EffectChain.*
@@ -89,6 +96,11 @@ CamVJ/
 │   │                 AutoFrameEffect.cpp        # usa tracking/framing.h
 │   │                 FaceMosaicEffect.cpp       # rostos do público → tiles (SpritePass)
 │   │                 face_tiles.h/.cpp          # FaceTileManager portátil + CTest
+│   ├── overlays/     overlay_model.* overlay_playback.* overlay_library.*
+│   │                 overlay_compositor.* overlay_system.* overlay_platform.h
+│   │   ├── mac/      overlay_platform_mac.mm    # picker + ImageIO/CoreGraphics
+│   │   └── win32/    overlay_platform_win.cpp   # picker Shell + WIC
+│   ├── presets/      scene_preset.* preset_store.* boot_state.*
 │   ├── tracking/     Tracker.h TrackingSnapshot.h framing.h/.cpp
 │   │                 source_mapping.h/.cpp      # canvas↔captura + Pick
 │   │                 FaceSensor.h FacesSnapshot.h face_tracks.h/.cpp  # ids por IoU + CTest
@@ -96,7 +108,8 @@ CamVJ/
 │   │   └── mac/      VisionTracker.mm           # Vision + object lock, thread própria
 │   │                 VisionFaceSensor.mm        # Vision, todos os rostos, 15 Hz, ocioso sem efeito
 │   └── ui/           UiLayer.* Theme.* Panels.h SourcePanel.cpp OutputPanel.cpp
-│                     ProgramPanel.cpp EffectsPanel.cpp PreviewPanel.cpp
+│                     ProgramPanel.cpp PresetsPanel.cpp OverlaysPanel.cpp
+│                     EffectsPanel.cpp PreviewPanel.cpp
 │                     StatsPanel.cpp
 │                     Inspector.h InspectorPanel.cpp  # stats OU parâmetros
 │                     ParameterWidgets.cpp
@@ -108,6 +121,10 @@ CamVJ/
 │                     source_health_test.cpp         # sinal, fps, repeats
 │                     program_output_test.cpp        # modos de PROGRAM + perda
 │                                                    # + os dois dissolves
+│                     scene_preset_test.cpp           # JSON v1/v2 + recall
+│                     overlay_playback_test.cpp       # clocks e fades
+│                     overlay_compositor_test.cpp     # ordem/alpha/fallback
+│                     overlay_library_test.cpp        # import/replace/cancel/trash
 └── assets/files/    identidade CamVJ (SVG + IDENTIDADE.md)
 ```
 

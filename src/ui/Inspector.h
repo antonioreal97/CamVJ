@@ -1,11 +1,25 @@
 #pragma once
 
+#include <cstdint>
+#include <string_view>
+
 namespace atemfx {
 
 class Effect;
 class EffectChain;
+struct OverlayPanelSnapshot;
 
 namespace ui {
+
+enum class InspectorKind
+{
+    Stats,
+    Effect,
+    OverlayLayer,
+    OverlayLibrary,
+};
+
+InspectorKind inspectorKind();
 
 // What the wide panel under the preview is showing.
 //
@@ -24,6 +38,15 @@ Effect* inspectedEffect();
 // Clicking an effect row. Passing nullptr is closeInspector().
 void inspectEffect(Effect* effect);
 
+// Overlay selection never stores pointers into vectors that an asynchronous
+// library commit can replace. Layer ids and logical asset ids remain stable
+// across reorder, variant replacement and snapshot refresh.
+uint64_t         inspectedOverlayLayerId();
+std::string_view inspectedOverlayAssetId();
+void inspectOverlayLayer(uint64_t layerId);
+void inspectOverlayLibrary(std::string_view selectedAssetId = {});
+void selectOverlayLibraryAsset(std::string_view assetId);
+
 // Back to the stats strip: the panel's own close control, EFFECTS folding
 // away, or another sidebar section being opened.
 void closeInspector();
@@ -32,7 +55,7 @@ void closeInspector();
 // Called once at the top of the frame, before the layout pass reads it: a
 // chain can be edited between frames as well as during them, and a stale
 // pointer would be dereferenced to size the panel before any panel draws.
-void validateInspector(const EffectChain* chain);
+void validateInspector(const EffectChain* chain, const OverlayPanelSnapshot* overlays = nullptr);
 
 // True while a framing node's parameters are open. Framing can only be
 // adjusted there, so this is exactly "the operator is composing the shot" -

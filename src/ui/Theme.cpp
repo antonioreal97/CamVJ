@@ -1,6 +1,7 @@
 #include "ui/Theme.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 #include "imgui.h"
@@ -156,8 +157,19 @@ void drawBrandGlyph(ImDrawList* drawList, ImVec2 centre, float size)
 
 namespace {
 
-bool g_panelOpen[]       = {true, true, true};
+constexpr std::size_t kPanelCount = static_cast<std::size_t>(PanelSection::Count);
+
+std::array<bool, kPanelCount> g_panelOpen = [] {
+    std::array<bool, kPanelCount> state{};
+    state.fill(true);
+    return state;
+}();
 bool g_sidebarCollapsed = false;
+
+std::size_t panelIndex(PanelSection section)
+{
+    return static_cast<std::size_t>(section);
+}
 
 void drawChevron(ImDrawList* drawList, ImVec2 centre, bool open, ImU32 colour)
 {
@@ -205,7 +217,11 @@ void drawRailItem(const char* title, ImU32 accent, int sectionIndex)
         g_sidebarCollapsed = false;
         if (sectionIndex >= 0)
         {
-            g_panelOpen[sectionIndex] = true;
+            const std::size_t index = static_cast<std::size_t>(sectionIndex);
+            if (index < g_panelOpen.size())
+            {
+                g_panelOpen[index] = true;
+            }
         }
     }
     if (hovered)
@@ -243,7 +259,8 @@ void drawRailItem(const char* title, ImU32 accent, int sectionIndex)
 
 bool panelOpen(PanelSection section)
 {
-    return g_panelOpen[static_cast<int>(section)];
+    const std::size_t index = panelIndex(section);
+    return index < g_panelOpen.size() && g_panelOpen[index];
 }
 
 bool sidebarCollapsed()
@@ -278,7 +295,39 @@ void drawSidebarRail(bool outputSending)
     drawRailItem("SOURCE", kSplitCyanU32, static_cast<int>(PanelSection::Source));
     drawRailItem("OUTPUT", outputSending ? kSplitMagentaU32 : kRackGreyU32,
                  static_cast<int>(PanelSection::Output));
+    drawRailItem("PRESETS", kSplitCyanU32, static_cast<int>(PanelSection::Presets));
+    drawRailItem("OVERLAYS", kSplitCyanU32, static_cast<int>(PanelSection::Overlays));
     drawRailItem("EFFECTS", kSplitCyanU32, static_cast<int>(PanelSection::Effects));
+
+    // No visible scrollbar in a 40-unit rail, but every title stays reachable
+    // by wheel or trackpad. Hairline chevrons report that more rack labels sit
+    // beyond the current view without adding a new colour or a shadow.
+    const float scrollY    = ImGui::GetScrollY();
+    const float scrollMaxY = ImGui::GetScrollMaxY();
+    const float centreX    = winMin.x + winSize.x * 0.5f;
+    const float edge       = scaled(5.0f);
+    const float arm        = scaled(3.0f);
+    ImDrawList* drawList   = ImGui::GetWindowDrawList();
+    if (scrollY > 0.5f)
+    {
+        drawList->AddTriangleFilled(ImVec2(centreX - arm, winMin.y + edge + arm),
+                                    ImVec2(centreX + arm, winMin.y + edge + arm),
+                                    ImVec2(centreX, winMin.y + edge), kRackGreyU32);
+    }
+    if (scrollY + 0.5f < scrollMaxY)
+    {
+        const float y = winMin.y + winSize.y - edge;
+        drawList->AddTriangleFilled(ImVec2(centreX - arm, y - arm),
+                                    ImVec2(centreX + arm, y - arm),
+                                    ImVec2(centreX, y), kRackGreyU32);
+    }
+}
+
+float foldedPanelHeight()
+{
+    const float pad    = scaled(4.0f);
+    const float header = ImGui::GetTextLineHeight() + 2.0f * pad;
+    return ImGui::GetStyle().WindowPadding.y * 2.0f + header + scaled(8.0f);
 }
 
 bool drawPanelHeader(const char* title, ImU32 accent, PanelSection section, const char* meta)
@@ -300,7 +349,7 @@ bool drawPanelHeader(const char* title, ImU32 accent, PanelSection section, cons
     // list so they cannot steal the click.
     ImGui::InvisibleButton("##fold", ImVec2(width, height));
     const bool hovered = ImGui::IsItemHovered();
-    bool&      open    = g_panelOpen[static_cast<int>(section)];
+    bool&      open    = g_panelOpen[panelIndex(section)];
     if (ImGui::IsItemClicked())
     {
         open = !open;
@@ -462,6 +511,16 @@ bool glyphButton(const char* id, Glyph glyph, float size, const char* tooltip,
         drawList->AddTriangleFilled(ImVec2(centre.x - arm, centre.y - arm * 0.55f),
                                     ImVec2(centre.x + arm, centre.y - arm * 0.55f),
                                     ImVec2(centre.x, centre.y + arm * 0.65f), stroke);
+        break;
+    case Glyph::Left:
+        drawList->AddTriangleFilled(ImVec2(centre.x + arm * 0.55f, centre.y - arm),
+                                    ImVec2(centre.x + arm * 0.55f, centre.y + arm),
+                                    ImVec2(centre.x - arm * 0.65f, centre.y), stroke);
+        break;
+    case Glyph::Right:
+        drawList->AddTriangleFilled(ImVec2(centre.x - arm * 0.55f, centre.y - arm),
+                                    ImVec2(centre.x + arm * 0.65f, centre.y),
+                                    ImVec2(centre.x - arm * 0.55f, centre.y + arm), stroke);
         break;
     case Glyph::Collapse:
         drawList->AddTriangleFilled(ImVec2(centre.x + arm * 0.55f, centre.y - arm),

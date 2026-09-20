@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
+#include <future>
 #include <memory>
 #include <string>
 #include <vector>
@@ -8,6 +10,9 @@
 #include "effects/Effect.h"
 #include "effects/EffectChain.h"
 #include "gpu/Rhi.h"
+#include "overlays/overlay_library.h"
+#include "overlays/overlay_platform.h"
+#include "overlays/overlay_system.h"
 #include "platform/Display.h"
 #include "platform/OutputWindow.h"
 #include "platform/Window.h"
@@ -18,6 +23,7 @@
 #include "video/VideoDevices.h"
 #include "video/VideoSource.h"
 #include "video/program_output.h"
+#include "video/program_recorder.h"
 #include "video/virtual_camera.h"
 
 namespace atemfx {
@@ -55,6 +61,11 @@ struct AppOptions
     // Send PROGRAM through the installed macOS virtual camera extension.
     bool webcam = false;
 
+    // Start recording PROGRAM (ProRes 422 HQ) as soon as the first frame
+    // runs. Empty recordDirectory means recordingsDirectory().
+    bool        record = false;
+    std::string recordDirectory;
+
     // Start on a deliberate PROGRAM state, including black before going live.
     ProgramMode programMode = ProgramMode::Effects;
 
@@ -84,7 +95,19 @@ private:
     void closeOutput();
     void serviceOutput();
     void serviceWebcam();
+    void serviceRecorder();
+    void servicePresets();
+    void serviceOverlays();
+    void consumeOverlayCommand();
+    bool beginOverlayPicker(const OverlayUiCommand& command);
+    void launchOverlayImport(const std::filesystem::path& source);
+    void rebuildOverlayAssetUi();
+    void refreshOverlayUi(float outputAspect);
+    void persistBootState();
+    bool recallPresetById(const std::string& id);
+    bool saveCurrentPreset(const std::string& name);
     int webcamResult() const;
+    int runResult() const;
     void startTracking();
     void rescanDevices();
     void updateEffectContext();
@@ -134,6 +157,19 @@ private:
     // operator later stops asking for it.
     bool               webcamFailed_ = false;
 
+    // Same shape as the webcam: the recorder's queue owns the file, PROGRAM
+    // only offers a frame, and a stopping recorder stays alive until the
+    // movie is closed. See docs/RECORDING.md.
+    std::unique_ptr<ProgramRecorder> recorder_;
+    RecorderStats      recorderStats_{};
+    bool               recorderSupported_ = false;
+    bool               requestRecordStart_ = false;
+    bool               requestRecordStop_ = false;
+    std::string        recorderStatus_;
+    std::string        recorderFile_;   // the take in progress, or the last one
+    // Sticky, like webcamFailed_: --record that failed is a failed run.
+    bool               recorderFailed_ = false;
+
     // Control plane. Runs beside the pipeline on its own thread, reads the
     // frames capture already produced, and can fail or stall without costing
     // a video frame. Null where the platform has no tracker.
@@ -159,6 +195,52 @@ private:
 
     bool        requestShaderReload_ = false;
     std::string status_;
+
+    enum class OverlayImportAction
+    {
+        NewAsset,
+        AddVariant,
+        ReplaceVariant,
+    };
+
+    struct PendingOverlayImport
+    {
+        OverlayImportAction action = OverlayImportAction::NewAsset;
+        OverlayMediaType    mediaType = OverlayMediaType::StillPng;
+        OverlayCanvasFormat format = OverlayCanvasFormat::Landscape16x9;
+        std::string         assetId;
+    };
+
+    struct OverlayImportJobResult
+    {
+        std::unique_ptr<OverlayLibrary> library;
+        std::string                     assetId;
+        std::string                     assetName;
+        std::string                     error;
+        bool                            cancelled = false;
+    };
+
+    // Overlay IO is a control-plane concern. The picker is native and
+    // pollable; validation/copying happens in a worker. Only immutable asset
+    // metadata and already-decoded frames reach the render path.
+    OverlayLibrary                         overlayLibrary_;
+    OverlaySystem                          overlaySystem_;
+    std::unique_ptr<OverlaySourcePicker>   overlayPicker_;
+    std::future<OverlayImportJobResult>    overlayImportFuture_;
+    std::shared_ptr<OverlayImportControl>  overlayImportControl_;
+    PendingOverlayImport                   pendingOverlayImport_;
+    OverlayPanelSnapshot                   overlayPanelSnapshot_;
+    std::vector<OverlayLayerUiState>       overlayLayerUi_;
+    std::vector<OverlayAssetUiState>       overlayAssetUi_;
+    OverlayUiCommand                       overlayCommand_;
+    bool                                   overlaysInitialized_ = false;
+    std::uint64_t                          overlayImportSerial_ = 0;
+
+    // Scene presets: UI writes the request, the frame loop applies it between
+    // draws so the chain is never rebuilt while panels are iterating it.
+    std::string recallPresetId_;
+    std::string savePresetName_;
+    bool        requestPresetSave_ = false;
 };
 
 } // namespace atemfx

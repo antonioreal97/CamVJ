@@ -70,12 +70,13 @@ bracket, after `ProgramOutput` and before `endProcessing`:
 
 ```text
 chain_.process()          the look
+overlaySystem_.composite() managed graphics after the chain
 programOutput_.render()   FX / Clean / Freeze / Black
 webcam_->submit(frame)    ← here
 device_->endProcessing()
 ```
 
-So the webcam carries PROGRAM, not the chain output: Clean, Freeze and Black
+So the webcam carries PROGRAM, not the chain output: overlays, Clean, Freeze and Black
 reach a call exactly the way they reach the wall, including the Freeze latch
 on input loss.
 

@@ -235,6 +235,81 @@ void drawOutputPanel(UiFrameState& state)
             ImGui::TextWrapped("%s", state.webcamStatus->c_str());
         }
     }
+
+    // Recording is a third consumer of the same PROGRAM picture, with its own
+    // control for the same reasons as the webcam. The elapsed time and the
+    // disk left are on the panel because a take that silently ran out of
+    // disk an hour ago is the failure this section exists to prevent.
+    ImGui::Spacing();
+
+    const RecorderState recordState = state.recorderStats.state;
+    const bool recording  = recordState == RecorderState::Recording;
+    const bool recordBusy = recordState == RecorderState::Starting ||
+                            recordState == RecorderState::Stopping;
+
+    theme::drawGroupLabel("RECORD", recording ? "REC" : (recordBusy ? "..." : "OFF"),
+                          recording ? theme::kSplitMagentaU32 : theme::kRackGreyU32);
+
+    ImGui::BeginDisabled(!state.recorderSupported || recordBusy || routingLocked);
+    if (recording)
+    {
+        if (theme::actionButton("Stop recording", theme::ButtonAccent::Magenta,
+                                ImVec2(-1.0f, 0.0f), true) &&
+            state.requestRecordStop)
+        {
+            *state.requestRecordStop = true;
+        }
+    }
+    else if (theme::actionButton("Record PROGRAM", theme::ButtonAccent::Magenta,
+                                 ImVec2(-1.0f, 0.0f)) &&
+             state.requestRecordStart)
+    {
+        *state.requestRecordStart = true;
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip(state.recorderSupported
+                              ? "Record PROGRAM to a ProRes 422 HQ movie (about 200 GB per hour)."
+                              : "This build has no recording.");
+    }
+
+    if (recording)
+    {
+        const RecorderStats& stats = state.recorderStats;
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::splitMagenta);
+        ImGui::Text("REC  %s   ProRes 422 HQ %s", formatRecordingTime(stats.seconds).c_str(),
+                    stats.tenBit ? "10-bit" : "8-bit");
+        ImGui::PopStyleColor();
+
+        const double gigabytes = static_cast<double>(stats.fileBytes) / 1.0e9;
+        const double minutes   = recordingMinutesLeft(stats.freeBytes, stats.fileBytes, stats.seconds);
+        if (minutes >= 0.0)
+        {
+            ImGui::TextDisabled("%.1f GB   disk left ~%s", gigabytes,
+                                formatRecordingTime(minutes * 60.0).c_str());
+        }
+        else
+        {
+            ImGui::TextDisabled("%.1f GB", gigabytes);
+        }
+        ImGui::TextDisabled("Frames %llu   dropped %llu",
+                            static_cast<unsigned long long>(stats.written),
+                            static_cast<unsigned long long>(stats.dropped));
+    }
+    else if (recordBusy)
+    {
+        ImGui::TextDisabled("Working");
+    }
+    else
+    {
+        ImGui::TextDisabled("Not recording");
+    }
+
+    if (state.recorderStatus && !state.recorderStatus->empty())
+    {
+        ImGui::TextWrapped("%s", state.recorderStatus->c_str());
+    }
 }
 
 } // namespace atemfx

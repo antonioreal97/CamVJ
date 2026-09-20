@@ -43,68 +43,48 @@ pacotes, sem assinatura, sem Windows neste passo. Docs em
 protection em `main` exige o check `ci / macos` (só funciona depois do
 primeiro run e com runner Idle). Próximo passo operacional: registrar o
 runner neste Mac.
+Pedido atual: **overlays próprios no sidebar, com variantes 16:9 e 9:16**.
+FX-026 foi implementado como abertura estreita do M6, preservando o canvas
+1920×1080 e o caminho de show macOS. Sem ATEM, DeckLink, Fill/Key ou blend modes.
 
-Pedido 2026-09-09: **recolher o sidebar** para um rail de títulos. Chevron
-no header (à esquerda do glifo CamVJ) encolhe a coluna de 392 px para
-40 px; PROGRAM / SOURCE / OUTPUT / EFFECTS viram letras empilhadas. Clique
-num título reabre a coluna e abre aquela seção (PROGRAM só reabre — não
-dobra). Os monitores SOURCE e PROGRAM herdam a largura. Com o rail fechado,
-FX / Clean / Freeze / Black ficam a dois cliques, como combinado — não
-foram para o header. Estado de sessão em `theme::sidebarCollapsed()`, sem
-imgui.ini. Sem RHI, sem pipeline.
+## O que entrou neste ciclo
 
-Pedido 2026-09-09: **Test Pattern → LED Mapping (16:9 + 9:16)** para mapear
-painéis. Quadro estático na GPU com guias gravadas na imagem (HLSL e MSL):
-16:9 ciano no canvas 1920×1080 inteiro e faixa 9:16 magenta centralizada,
-607,5×1080, x=656,25..1263,75. Pattern agora é combo com nomes via
-`Parameter::makeChoice`, ainda Int escalar. CLI `--pattern led-mapping`.
-`VideoSource::bypassEffects()` é false por padrão e true apenas nesse modo;
-App passa a política à cadeia, que avança automações e devolve a fonte antes
-de rodar qualquer efeito. Assim Auto Frame/retrato/zoom/FX não deformam as
-guias nem alteram as configurações salvas na sessão. PROGRAM mantém
-Freeze/Black e o framing do quadro segurado. Speed/Markers só alteram os
-padrões animados. Não muda RHI, resolução, captura ou milestones.
+- **FX-009 mínimo:** `src/presets/` — scene JSON (cadeia, params, loops,
+  FX/Clean), factory looks, save/recall na UI (**PRESETS** entre OUTPUT e
+  EFFECTS). CTest `scene_preset`.
+- **Venue boot:** `~/Library/Application Support/CamVJ/boot.json` lembra
+  source id, output display id e portrait; CLI `--source` / `--output` vencem.
+- **Rack:** Mirror mode e Frame Delay blend viraram `makeChoice`.
+- **Runbook** no README (Gatekeeper + show path). DMG unsigned regenerado.
+- **FX-026:** `src/overlays/` — biblioteca gerenciada, import assíncrono por
+  picker nativo, PNG estático/sequência, variantes exatas 1920×1080 e
+  1080×1920, até quatro layers e uma sequência ativa por vez.
+- **Composição:** GPU depois da EffectChain e antes do ProgramOutput; Clean
+  dissolve overlays junto do look, Freeze/Black mantêm playback atrás, LED
+  Mapping ignora a pilha. HLSL + MSL `overlay_composite` e `overlay_mix`; troca
+  ao vivo mistura as artes antes de aplicar a opacidade da layer uma vez.
+- **UI:** OVERLAYS entre PRESETS e EFFECTS; library/layer abrem no inspector
+  largo. Import nunca põe a arte no ar. Operation lock protege biblioteca e
+  estrutura, mas não visibilidade/opacidade/transporte.
+- **Presets v2:** guarda a pilha; v1 migra com overlays vazios.
 
-Validação dessa opção: build macOS, 5 CTests (incluindo 221 verificações de
-PROGRAM), 14 shaders Metal compilados e gate headless de 200 frames passaram.
-Dump 1920×1080 conferido visualmente e por pixels nas bordas/centro; arquivo
-idêntico com a cadeia padrão e com dez efeitos habilitados. Flags inválidas
-rejeitadas antes de iniciar GPU. HLSL tem os mesmos helpers do MSL, mas a
-execução no Windows continua pendente.
+## P0 observado neste Mac
 
-**M0 está fechado; M1 DeckLink está em andamento** (Windows). FX-010
-discovery foi implementado e aguarda validação de build e placa Windows.
-Captura, playback, filas, timing e split de thread ainda não existem.
+- Build Release, CTest 7/7, shaders 14/14, headless 200 frames OK (~0,6 ms GPU).
+- `--list-sources`: Test Pattern + câmera embutida (FX30 não plugada agora).
+- `--list-displays`: só Built-in Retina — LED externo não conectado nesta
+  máquina; validação de cabo/LED fica no Mac do evento.
+- DMG `dist/CamVJ-1.0.0-macos-arm64.dmg` verificado com `hdiutil verify`.
 
-Pedido atual (2026-09-09), parte 5: linhas entre os parametros. Uma regua
-(`ImGui::Separator`, cor `ImGuiCol_Separator` = `line` do tema) acima de cada
-parametro, **nunca acima do primeiro de cada coluna** - duas linhas de
-controle sem nada entre elas deixavam a trilha parecer do nome de baixo em vez
-do de cima. O painel de loop passou a morar dentro do par de reguas do proprio
-parametro, entao sumiu o separador especial que ele desenhava.
+## Decisões
 
-Duas contas de altura precisaram acompanhar, senao corta o ultimo controle:
-`separatorHeight()` no `InspectorPanel.cpp` e o novo `parameterBlockHeight()`
-no `UiLayer.cpp` (que substituiu `parameterRows()` - contar linhas e esquecer
-as reguas foi o que cortou o slider de Speed no SOURCE). O SOURCE ja rolava
-antes (conteudo 620 contra janela 318, medido com probe temporario); a reserva
-do EFFECTS caiu de 240 para 180 porque ela foi dimensionada quando o EFFECTS
-ainda carregava a secao PARAMETERS, e esse espaco devolvido e o que paga as
-reguas. Speed e Motion Markers voltaram a aparecer.
+- Presets abrem M3 cedo e estreito; M1/M2/M4/M5 fechados.
+- Overlays abrem M6 cedo e estreito; não são Effects nem um layer graph.
+- Freeze/Black não entram no look; venue boot é arquivo separado do look.
+- JSON hand-rolled — sem nlohmann/spdlog/Catch2 novos.
+- Operation lock bloqueia recall/save (igual mutação da chain).
 
-Pedido atual (2026-09-09), parte 4: UI dos parametros. Cada linha virou uma
-tira de rack de duas alturas: nome a esquerda, **valor como `DragFloat`/
-`DragInt` na fonte mono** (arrasta para passo fino, Ctrl-clique para digitar)
-e o **Loop como botao de glifo** com uma onda senoidal, preenchido de ciano
-quando roda. A trilha embaixo carrega so a posicao na faixa mais um **tique no
-valor padrao** (`drawDefaultTick`), com `ImGuiSliderFlags_NoInput` porque
-Ctrl-clique num slider com formato vazio abriria uma caixa de texto vazia.
-Booleano virou uma linha so, com o checkbox na coluna do valor. Casas decimais
-saem da faixa (`%.1f` acima de span 20, `%.3f` abaixo de 2), entao
-`Hold (s)` le `2.00` e nao `2.000`. Tooltip unificado: id, faixa, padrao e os
-dois gestos que nada anuncia. `theme::Glyph::Loop` e um `active` novo em
-`glyphButton`. Vale igual no sidebar (parametros de fonte) e no inspector,
-porque os dois passam pelo mesmo `drawParameterRow`.
+## Próximos (operador, não código)
 
 Pedido atual (2026-09-09), parte 3: calibrar melhor o enquadramento do
 tracking, com grade de alinhamento que não vai para a saída.
@@ -427,3 +407,6 @@ e mantém UTF-8 em saída redirecionada; a execução Windows segue pendente.
 Máquinas sem GPU (sandbox de agente) não rodam o binário Metal. O gate
 headless precisa da GPU do host; testes de discovery no stub não substituem
 validação Windows com SDK, driver e placa.
+1. Inspecionar manualmente o painel OVERLAYS e importar uma arte real de cada formato.
+2. Ensaiar runbook no Mac do evento com FX30 + processador LED.
+3. Validar picker/WIC e runtime no Windows.

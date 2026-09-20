@@ -34,19 +34,20 @@ estáveis e sem dropped frames.
 
 ## Fora de escopo da V1
 
-IA, stacks de layers, partículas, NDI, streaming, gravação, timeline, oito
-câmeras simultâneas, blend modes, LUTs, OSC, Stream Deck.
+IA, layer graph geral, partículas, NDI, streaming, gravação, timeline, oito
+câmeras simultâneas, blend modes, Fill/Key, LUTs, OSC, Stream Deck. A exceção
+limitada é FX-026: até quatro overlays PNG gerenciados.
 
 ## Estado neste repositório
 
 **M0 feito; M1 em andamento.** Núcleo GPU, dois backends, padrão de teste e
 câmeras atrás de `VideoSource`, 11 efeitos, automação por parâmetro, tracking
 com Vision no macOS, saída para tela, PROGRAM (FX / Clean / Freeze / Black),
-webcam virtual no macOS, ImGui e headless. FX-010 discovery DeckLink foi
-implementado como comando separado `--list-decklink`, com SDK opcional no
-Windows e stub nos demais builds. Build e placa Windows ainda precisam ser
-validados antes de marcar FX-010 done. Captura/saída DeckLink e ATEM não foram
-implementados.
+webcam virtual no macOS, presets de cena (FX-009 mínimo) + boot de venue,
+overlays próprios 16:9/9:16 (FX-026), ImGui e headless. FX-010 discovery DeckLink foi implementado como comando
+separado `--list-decklink`, com SDK opcional no Windows e stub nos demais
+builds. Build e placa Windows ainda precisam ser validados antes de marcar
+FX-010 done. Captura/saída DeckLink e ATEM não foram implementados.
 
 Versão: **1.0.0** — origem única em `project(AtemFx VERSION ...)` no
 `CMakeLists.txt`, mesma da tag `v1.0.0`. Procedimento em

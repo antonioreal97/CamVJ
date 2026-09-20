@@ -16,9 +16,9 @@ public:
                        "mirror",
                        SamplerFilter::Linear)
     {
-        parameters_.add(Parameter::makeChoice("mode", "Mode", 0,
-                                              {"Left → Right", "Right → Left",
-                                               "Top → Bottom", "Bottom → Top", "Quad"}));
+        parameters_.add(Parameter::makeChoice(
+            "mode", "Mode", 0,
+            {"Left > Right", "Right > Left", "Top > Bottom", "Bottom > Top", "Quad"}));
         parameters_.add(Parameter::makeFloat("pivot", "Pivot", 0.5f, 0.0f, 1.0f));
     }
 };

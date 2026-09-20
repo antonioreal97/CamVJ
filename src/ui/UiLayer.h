@@ -31,9 +31,9 @@ public:
 
 private:
     // The sidebar decides what the panel under the preview shows: opening
-    // another section, or folding EFFECTS away, sends it back to the stats
-    // strip. Kept here because the layout already owns which section is open,
-    // and the fold state itself carries no history to compare against.
+    // another section, or folding the section that owns the current inspector,
+    // sends it back to the stats strip. Kept here because the layout already
+    // owns which section is open, and fold state has no history of its own.
     void syncInspectorToSections();
 
     // Context setup that does not depend on the graphics API: ImGui flags,
@@ -54,6 +54,8 @@ private:
     // Last frame's fold state, so an edge can be told from a steady state.
     bool sourceOpen_  = true;
     bool outputOpen_  = true;
+    bool presetsOpen_ = true;
+    bool overlaysOpen_ = true;
     bool effectsOpen_ = true;
 };
 
